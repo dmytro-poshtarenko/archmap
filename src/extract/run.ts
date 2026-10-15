@@ -60,9 +60,10 @@ export function runExtraction(
     const previous = JSON.parse(getMeta(db, "extract.stats") ?? "{}") as ExtractStats;
     return { ...previous, skipped: true };
   }
-  const { sites, routes, stats } = extractAll(program, rules, config.rules.liftDepth);
+  const { sites, routes, stats, usage } = extractAll(program, rules, config.rules.liftDepth);
   writeSites(db, sites);
   writeRoutes(db, routes);
+  writeUsage(db, usage);
   setMeta(db, "extract.key", key);
   setMeta(db, "extract.rulesHash", rules.hash);
   setMeta(db, "extract.stats", JSON.stringify(stats));
@@ -70,7 +71,11 @@ export function runExtraction(
 }
 
 /** The extraction itself, without storage: call sites and routes of a program under a rule set. */
-export function extractAll(program: Program, rules: RuleSet, liftDepth: number): { sites: CallSite[]; routes: RouteDecl[]; stats: ExtractStats } {
+export function extractAll(
+  program: Program,
+  rules: RuleSet,
+  liftDepth: number,
+): { sites: CallSite[]; routes: RouteDecl[]; stats: ExtractStats; usage: Map<string, string[]> } {
   const t0 = performance.now();
   const files = program.codeFiles().map((f) => fileId(f.repo, f.path));
   for (const id of files) program.source(id);
@@ -103,7 +108,7 @@ export function extractAll(program: Program, rules: RuleSet, liftDepth: number):
     seconds: { parse: round(t1 - t0), calls: round(t2 - t1), lift: round(t3 - t2), routes: round(t4 - t3), total: round(t4 - t0) },
     rssMb: Math.round(process.memoryUsage().rss / 2 ** 20),
   };
-  return { sites, routes, stats };
+  return { sites, routes, stats, usage };
 }
 
 function toSites(program: Program, placed: ReturnType<Lifter["place"]>, usage: Map<string, string[]>): CallSite[] {
@@ -201,6 +206,23 @@ function writeSites(db: Db, sites: CallSite[]): void {
       });
     }
   })();
+}
+
+function writeUsage(db: Db, usage: Map<string, string[]>): void {
+  const insert = db.prepare("INSERT INTO file_usage(repo, path, components) VALUES (?, ?, ?)");
+  db.transaction(() => {
+    db.exec("DELETE FROM file_usage");
+    for (const [id, components] of usage) {
+      const at = id.indexOf(":");
+      insert.run(id.slice(0, at), id.slice(at + 1), JSON.stringify(components));
+    }
+  })();
+}
+
+/** Parts running each code file, by `<repo>:<path>`. */
+export function loadUsage(db: Db): Map<string, string[]> {
+  const rows = db.prepare("SELECT repo, path, components FROM file_usage").all() as Array<{ repo: string; path: string; components: string }>;
+  return new Map(rows.map((r) => [`${r.repo}:${r.path}`, JSON.parse(r.components) as string[]]));
 }
 
 function writeRoutes(db: Db, routes: RouteDecl[]): void {

@@ -25,7 +25,8 @@ interface Option {
 export function rankCandidates(resolver: Resolver, site: CallSite, resolution: Resolution, sources: Sources, limit = 5): Ranked[] {
   if (!sources.rules) return [];
   const query = queryOf(site);
-  if (query === null) return [];
+  // an address with no text at all (`{?}`) gives nothing to compare: no candidates
+  if (query === null || tokens(query).size === 0) return [];
   const options = optionsOf(resolver, site, sources);
   const methods = site.type === "http" ? methodsOf(site.method) : null;
   const open = new Set(resolution.alternatives);

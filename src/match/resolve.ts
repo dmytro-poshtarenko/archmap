@@ -313,7 +313,7 @@ export class Resolver {
       const fit = fitPath(segments, text, this.patternOf(route.template));
       if (fit) out.push({ route, fit });
     }
-    return out;
+    return preferRules(out, (f) => f.route, (f) => !f.fit.weak);
   }
 
   private throughGateway(site: CallSite): boolean {
@@ -352,7 +352,10 @@ export class Resolver {
     const verb = site.role === "subscribe" ? "sub" : "call";
     return combine(
       names.map((name) => {
-        const routes = this.routesOf("ddp-method", sources).filter((r) => r.template === name && (r.method === null || r.method === verb));
+        const routes = preferRules(
+          this.routesOf("ddp-method", sources).filter((r) => r.template === name && (r.method === null || r.method === verb)),
+          (r) => r,
+        );
         const ruleRoute = routes.some((r) => r.source === "rules");
         let candidates = routes.flatMap((r) => r.components.map((c) => ({ component: c, route: r, key: `ddp:${verb}:${name}@${c}` })));
         if (candidates.length === 0) return unresolved("no-route", ruleRoute);
@@ -379,7 +382,10 @@ export class Resolver {
     if (names === null) return unresolved("unknown-name");
     return combine(
       names.map((name) => {
-        const routes = this.routesOf("broker-action", sources).filter((r) => r.template === name);
+        const routes = preferRules(
+          this.routesOf("broker-action", sources).filter((r) => r.template === name),
+          (r) => r,
+        );
         const ruleRoute = routes.some((r) => r.source === "rules");
         if (routes.length === 0) return unresolved("no-route", ruleRoute);
         const candidates: Candidate[] = [];
@@ -477,6 +483,16 @@ export class Resolver {
     );
     return { ...settle(site, candidates, ambiguous), via, ruleRoute };
   }
+}
+
+/**
+ * Declarations of the rules first: routes the language model extracted
+ * count only where no rule declaration fits, so they fill gaps and never
+ * override a rule.
+ */
+function preferRules<T>(items: T[], routeOf: (t: T) => RouteDecl, counts: (t: T) => boolean = () => true): T[] {
+  const ruled = items.filter((t) => routeOf(t).source === "rules");
+  return ruled.some(counts) ? ruled : items;
 }
 
 function allowed(r: RouteDecl, sources: Sources): boolean {

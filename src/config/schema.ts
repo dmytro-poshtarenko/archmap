@@ -55,6 +55,65 @@ export const ComponentConfig = z.strictObject({
 });
 export type ComponentConfig = z.infer<typeof ComponentConfig>;
 
+export const Effort = z.enum(["low", "medium", "high", "xhigh", "max"]);
+export type Effort = z.infer<typeof Effort>;
+
+/**
+ * The language model layer. The cloud model takes no sampling parameters
+ * (Claude Opus 5.5 rejects temperature), so its answers are fixed by a fixed
+ * effort per task, structured outputs and the answer cache; the local model
+ * runs at temperature 0 with a seed.
+ */
+export const LlmConfig = z.strictObject({
+  cloud: z
+    .strictObject({
+      model: z.string().default("claude-opus-5-5"),
+      effort: z
+        .strictObject({ extract: Effort.default("medium"), select: Effort.default("low"), free: Effort.default("medium"), probe: Effort.default("low") })
+        .prefault({}),
+      /** Many requests go through the Message Batches API (half price). */
+      batch: z.boolean().default(true),
+      /** Server-side fallbacks would silently answer with another model: always off. */
+      fallbacks: z.literal(false).default(false),
+      /**
+       * Whether code of licence zones that are not publishable (Rocket.Chat
+       * Enterprise) may be sent to the cloud model. Off: such files are read
+       * by the local model only, and their sites stay unresolved in cloud runs.
+       */
+      sendNonPublishable: z.boolean().default(false),
+    })
+    .prefault({}),
+  local: z
+    .strictObject({
+      model: z.string().default("qwen3:30b-a3b-instruct-2507-q4_K_M"),
+      url: z.string().default("http://127.0.0.1:11434"),
+      seed: z.number().int().default(42),
+      /** Context window per request: `auto` sizes it from the prompt; a number fixes it. */
+      numCtx: z.union([z.literal("auto"), z.number().int().positive()]).default("auto"),
+      maxCtx: z.number().int().positive().default(131072),
+    })
+    .prefault({}),
+  extract: z
+    .strictObject({
+      /** Regular expressions; a server file matching one is sent to route extraction. */
+      hints: z.array(z.string()).default([]),
+    })
+    .prefault({}),
+  resolve: z
+    .strictObject({
+      mode: z.enum(["select", "free"]).default("select"),
+      candidates: z.number().int().min(1).max(10).default(5),
+      contextLines: z.number().int().min(5).max(200).default(40),
+    })
+    .prefault({}),
+  /** Long files are split into parts on top-level statements; hypothesis 3 decides. */
+  chunking: z.strictObject({ enabled: z.boolean().default(false), maxTokens: z.number().int().positive().default(6000) }).prefault({}),
+  /** A share of the requests is repeated to measure how stable the answers are. */
+  stability: z.strictObject({ share: z.number().min(0).max(1).default(0.1), repeats: z.number().int().min(1).default(3) }).prefault({}),
+  budgetUsd: z.number().positive().default(60),
+});
+export type LlmConfig = z.infer<typeof LlmConfig>;
+
 export const TargetConfig = z.strictObject({
   name: Id,
   repos: z.array(RepoConfig).min(1),
@@ -108,8 +167,7 @@ export const TargetConfig = z.strictObject({
       gapFiles: z.number().int().nonnegative().default(20),
     })
     .prefault({}),
-  /** LLM settings are defined by the LLM layer (milestone M7). */
-  llm: z.record(z.string(), z.unknown()).optional(),
+  llm: LlmConfig.prefault({}),
   /** Measurement protocol; the defaults serve fixtures, a real target sets every value. */
   experiment: z
     .strictObject({

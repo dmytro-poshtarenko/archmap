@@ -9,6 +9,7 @@ import { registerFetch } from "./commands/fetch.js";
 import { registerInventory } from "./commands/inventory.js";
 import { registerLabel } from "./commands/label.js";
 import { registerLicenceCheck } from "./commands/licenceCheck.js";
+import { registerLlm } from "./commands/llm.js";
 import { registerMatch } from "./commands/match.js";
 import { registerPin } from "./commands/pin.js";
 import { DEFAULT_CONFIG } from "./context.js";
@@ -30,6 +31,7 @@ registerExtractInfra(program);
 registerClassify(program);
 registerMatch(program);
 registerEvaluate(program);
+registerLlm(program);
 
 try {
   await program.parseAsync(process.argv);

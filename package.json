@@ -22,6 +22,7 @@
     "test:system": "ARCHMAP_SYSTEM=1 vitest run test/system"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "0.131.0",
     "better-sqlite3": "13.0.3",
     "commander": "15.0.0",
     "hcl2-json-parser": "1.0.1",

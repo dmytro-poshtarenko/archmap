@@ -181,4 +181,53 @@ export const migrations: Migration[] = [
       );
     `,
   },
+  {
+    version: 5,
+    name: "language model",
+    sql: `
+      -- Every answer of a language model, keyed by what was asked: a repeated request is served from here.
+      CREATE TABLE llm_answer (
+        cache_key    TEXT PRIMARY KEY,          -- sha256 of task, provider, model, prompt and repeat
+        task         TEXT NOT NULL,
+        provider     TEXT NOT NULL,
+        model_req    TEXT NOT NULL,
+        model_actual TEXT,                      -- the model that answered (response.model)
+        repeat       INTEGER NOT NULL,
+        prompt_hash  TEXT NOT NULL,
+        template     TEXT NOT NULL,             -- '<prompt id>@<version>'
+        subject      TEXT NOT NULL,             -- what the request is about: a file, a call site
+        raw          TEXT NOT NULL,
+        parsed       TEXT,                      -- JSON, when the answer parsed against the schema
+        stop_reason  TEXT,                      -- end_turn | max_tokens | refusal | truncated-input | error
+        input_tokens  INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_read    INTEGER NOT NULL DEFAULT 0,
+        cache_write   INTEGER NOT NULL DEFAULT 0,
+        latency_ms   INTEGER NOT NULL DEFAULT 0,
+        cost_usd     REAL NOT NULL DEFAULT 0,
+        batch_id     TEXT,
+        created_at   TEXT NOT NULL
+      );
+      CREATE INDEX llm_answer_subject ON llm_answer(task, subject);
+
+      -- Parts running each code file, from the import graph of the extraction; routes the model
+      -- extracts get their parts from here, as rule routes do.
+      CREATE TABLE file_usage (
+        repo       TEXT NOT NULL,
+        path       TEXT NOT NULL,
+        components TEXT NOT NULL,               -- JSON array
+        PRIMARY KEY (repo, path)
+      );
+
+      -- Message batches submitted and not yet collected; a run resumes them.
+      CREATE TABLE llm_batch (
+        id         TEXT PRIMARY KEY,
+        provider   TEXT NOT NULL,
+        task       TEXT NOT NULL,
+        requests   TEXT NOT NULL,               -- JSON {cache key: request summary}
+        status     TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+    `,
+  },
 ];
