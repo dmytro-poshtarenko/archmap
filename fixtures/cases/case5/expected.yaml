@@ -1,0 +1,6 @@
+# No rule extracts Meteor.methods declarations, so the extraction finds no route.
+sites:
+  - { at: "client:src/orders.ts:@Meteor.callAsync(", type: ddp, role: request, address: orders.cancel, hops: [] }
+routes: []
+links:
+  - { site: "client:src/orders.ts:@Meteor.callAsync(", target: "ddp:call:orders.cancel@app-server", case: 5 }

@@ -1,0 +1,9 @@
+# Case 3: the address is hidden behind a helper function, a constant or a wrapper.
+name: case3
+repos:
+  - { id: client, path: client, role: main, licence: MIT, publishable: true }
+  - { id: orders, path: orders, role: main, licence: MIT, publishable: true }
+components:
+  - { id: web, kind: client, include: ["client:**"] }
+  - { id: orders-api, kind: service, include: ["orders:**"] }
+rules: { packs: [generic@1] }

@@ -1,0 +1,1 @@
+{ "name": "@mini/api", "private": true, "dependencies": { "bullmq": "^5.0.0", "express": "^5.0.0" } }

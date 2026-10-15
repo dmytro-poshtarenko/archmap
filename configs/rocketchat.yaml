@@ -73,9 +73,9 @@ labelling:
   packs: [generic@1, rocketchat@1]
   gapFiles: 20
 
+# Extraction rules. The Rocket.Chat pack (REST router, broker, models, cron) comes with milestone M3.
 rules:
-  packs: [generic@1, rocketchat@1]
-  bindings: ["rules/bindings/*.yaml"]
+  packs: [generic@1, meteor@1]
   liftDepth: 3
 
 infra:

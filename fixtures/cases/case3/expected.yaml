@@ -1,0 +1,11 @@
+# The fetch inside postJson takes its path as a parameter, so it is not a site
+# itself: the site is the call of postJson that fixes the path.
+sites:
+  - { at: "client:src/orders.ts:@fetch(apiUrl(", type: http, role: request, method: GET, address: /api/orders, hops: [const, import, wrapper] }
+  - { at: "client:src/orders.ts:@postJson(\"/orders/archive\"", type: http, role: request, method: POST, address: /api/orders/archive, hops: [import, wrapper], lifted: true }
+routes:
+  - { at: "orders:src/orders.ts:@ordersRouter.get(", kind: http, method: GET, template: /api/orders, component: orders-api }
+  - { at: "orders:src/orders.ts:@ordersRouter.post(", kind: http, method: POST, template: /api/orders/archive, component: orders-api }
+links:
+  - { site: "client:src/orders.ts:@fetch(apiUrl(", target: "http:GET:/api/orders@orders-api", case: 3 }
+  - { site: "client:src/orders.ts:@postJson(\"/orders/archive\"", target: "http:POST:/api/orders/archive@orders-api", case: 3 }

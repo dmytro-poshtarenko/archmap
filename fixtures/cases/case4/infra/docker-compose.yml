@@ -1,0 +1,9 @@
+services:
+  gateway:
+    image: example/gateway
+    environment:
+      ORDERS_URL: http://orders:3000
+  orders:
+    image: example/orders
+  archive:
+    image: example/archive

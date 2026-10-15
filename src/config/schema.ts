@@ -65,8 +65,9 @@ export const TargetConfig = z.strictObject({
   exclude: z.array(z.string()).default([]),
   rules: z
     .strictObject({
-      packs: z.array(z.string()).default([]),
-      bindings: z.array(z.string()).default([]),
+      /** Extraction rule packs, read from `rules/<id>@<version>.yaml`, in order. */
+      packs: z.array(z.string().regex(/^[a-z0-9-]+@\d+$/, "expected 'id@version'")).default([]),
+      /** How many wrapper calls a call site may be lifted through to reach a fixed address. */
       liftDepth: z.number().int().min(0).max(8).default(3),
     })
     .prefault({}),
@@ -91,16 +92,23 @@ export const TargetConfig = z.strictObject({
     .prefault({}),
   /** LLM settings are defined by the LLM layer (milestone M7). */
   llm: z.record(z.string(), z.unknown()).optional(),
-  experiment: z.strictObject({
-    seeds: z.strictObject({ split: z.number().int(), sample: z.number().int(), bootstrap: z.number().int() }),
-    devShare: z.number().gt(0).lt(1),
-    sample: z.strictObject({
-      main: z.number().int().positive(),
-      minPerType: z.number().int().nonnegative(),
-      heldout: z.number().int().nonnegative(),
-    }),
-    secondAnnotator: z.number().min(0).max(1),
-  }),
+  /** Measurement protocol; the defaults serve fixtures, a real target sets every value. */
+  experiment: z
+    .strictObject({
+      seeds: z
+        .strictObject({ split: z.number().int(), sample: z.number().int(), bootstrap: z.number().int() })
+        .prefault({ split: 1, sample: 1, bootstrap: 1 }),
+      devShare: z.number().gt(0).lt(1).default(0.3),
+      sample: z
+        .strictObject({
+          main: z.number().int().positive(),
+          minPerType: z.number().int().nonnegative(),
+          heldout: z.number().int().nonnegative(),
+        })
+        .prefault({ main: 400, minPerType: 30, heldout: 100 }),
+      secondAnnotator: z.number().min(0).max(1).default(0.2),
+    })
+    .prefault({}),
 });
 export type TargetConfig = z.infer<typeof TargetConfig>;
 

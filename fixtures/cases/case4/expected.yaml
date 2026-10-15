@@ -1,0 +1,7 @@
+sites:
+  - { at: "gateway:src/orders.ts:@fetch(", type: http, role: request, method: GET, address: "{env:ORDERS_URL}/orders", hops: [] }
+routes:
+  - { at: "orders:src/app.ts:@app.get(", kind: http, method: GET, template: /orders, component: orders-api }
+  - { at: "archive:src/app.ts:@app.get(", kind: http, method: GET, template: /orders, component: archive-api }
+links:
+  - { site: "gateway:src/orders.ts:@fetch(", target: "http:GET:/orders@orders-api", case: 4 }

@@ -1,0 +1,7 @@
+sites:
+  - { at: "client:src/orders.ts:@axios.get(", type: http, role: request, method: GET, address: "/orders/{param:id}", hops: [] }
+routes:
+  - { at: "orders:src/app.ts:@app.get(", kind: http, method: GET, template: "/orders/:id", component: orders-api }
+  - { at: "legacy:src/app.ts:@app.get(", kind: http, method: GET, template: "/orders/:orderId", component: legacy-api }
+links:
+  - { site: "client:src/orders.ts:@axios.get(", target: "http:GET:/orders/:id@orders-api", case: 6 }

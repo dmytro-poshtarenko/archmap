@@ -1,0 +1,11 @@
+# The address of syncOrders is read from a response at run time: the site is
+# found, its target is not recoverable from static sources.
+sites:
+  - { at: "client:src/orders.ts:@fetch(url", type: http, role: request, method: POST, address: "{?}", hops: [] }
+  - { at: "client:src/settings.ts:@fetch(", type: http, role: request, method: GET, address: "/api/settings/{param:name}", hops: [] }
+routes:
+  - { at: "orders:src/app.ts:@app.get(", kind: http, method: GET, template: "/api/settings/:name", component: orders-api }
+  - { at: "orders:src/app.ts:@app.post(", kind: http, method: POST, template: /api/orders-sync, component: orders-api }
+links:
+  - { site: "client:src/orders.ts:@fetch(url", target: null, case: 8 }
+  - { site: "client:src/settings.ts:@fetch(", target: "http:GET:/api/settings/:name@orders-api", case: 2 }

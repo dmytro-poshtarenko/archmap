@@ -1,0 +1,10 @@
+# Case 5: the target is declared with a mechanism the rules do not cover
+# (Meteor methods), so only the language model can extract the declaration.
+name: case5
+repos:
+  - { id: client, path: client, role: main, licence: MIT, publishable: true }
+  - { id: server, path: server, role: main, licence: MIT, publishable: true }
+components:
+  - { id: web, kind: client, include: ["client:**"] }
+  - { id: app-server, kind: service, include: ["server:**"] }
+rules: { packs: [generic@1, meteor@1] }

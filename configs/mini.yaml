@@ -1,0 +1,15 @@
+# The mini-complex fixture used by the integration tests.
+name: mini
+repos:
+  - { id: web, path: ../fixtures/mini-complex/web, role: main, licence: MIT, publishable: true }
+  - { id: api, path: ../fixtures/mini-complex/api, role: main, licence: MIT, publishable: true }
+  - { id: worker, path: ../fixtures/mini-complex/worker, role: main, licence: MIT, publishable: true }
+  - { id: infra, path: ../fixtures/mini-complex/infra, role: infra, licence: MIT, publishable: true }
+components:
+  - { id: web, kind: client, include: ["web:**"] }
+  - { id: api, kind: service, include: ["api:**"] }
+  - { id: worker, kind: service, include: ["worker:**"] }
+  - { id: traefik, kind: gateway }
+  - { id: redis, kind: bus }
+rules: { packs: [generic@1] }
+infra: { compose: ["infra:docker-compose.yml"] }

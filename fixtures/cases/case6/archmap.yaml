@@ -1,0 +1,12 @@
+# Case 6: the same path in two services, and nothing in the deployment says
+# which one the client calls; only the context of the call does.
+name: case6
+repos:
+  - { id: client, path: client, role: main, licence: MIT, publishable: true }
+  - { id: orders, path: orders, role: main, licence: MIT, publishable: true }
+  - { id: legacy, path: legacy, role: main, licence: MIT, publishable: true }
+components:
+  - { id: web, kind: client, include: ["client:**"] }
+  - { id: orders-api, kind: service, include: ["orders:**"] }
+  - { id: legacy-api, kind: service, include: ["legacy:**"] }
+rules: { packs: [generic@1] }

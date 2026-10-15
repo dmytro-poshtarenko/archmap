@@ -1,0 +1,14 @@
+# Case 4: the base address of the server comes from an environment variable; two
+# services have the same path, and only the deployment says which one is meant.
+name: case4
+repos:
+  - { id: gateway, path: gateway, role: main, licence: MIT, publishable: true }
+  - { id: orders, path: orders, role: main, licence: MIT, publishable: true }
+  - { id: archive, path: archive, role: main, licence: MIT, publishable: true }
+  - { id: infra, path: infra, role: infra, licence: MIT, publishable: true }
+components:
+  - { id: gateway, kind: service, include: ["gateway:**"] }
+  - { id: orders-api, kind: service, include: ["orders:**"] }
+  - { id: archive-api, kind: service, include: ["archive:**"] }
+rules: { packs: [generic@1] }
+infra: { compose: ["infra:docker-compose.yml"] }

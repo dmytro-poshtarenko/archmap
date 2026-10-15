@@ -1,0 +1,15 @@
+sites:
+  - { at: "web:src/api/orders.ts:@http.get(\"/orders\")", type: http, role: request, method: GET, address: /api/orders, hops: [const, import] }
+  - { at: "web:src/api/orders.ts:@http.post(", type: http, role: request, method: POST, address: /api/orders, hops: [const, import] }
+  - { at: "web:src/api/orders.ts:@http.get(`", type: http, role: request, method: GET, address: "/api/orders/{param:id}", hops: [const, import] }
+  - { at: "web:src/api/users.ts:@request(\"/users/me\")", type: http, role: request, method: GET, address: /api/users/me, hops: [wrapper], lifted: true }
+  - { at: "web:src/api/users.ts:@method: \"PUT\"", type: http, role: request, method: PUT, address: /api/users/me, hops: [wrapper], lifted: true }
+  - { at: "api:src/routes/orders.ts:@emailQueue.add(", type: broker, role: publish, address: emails, hops: [const, import] }
+  - { at: "worker:src/worker.ts:@new Worker(", type: broker, role: subscribe, address: emails, hops: [] }
+  - { at: "worker:src/worker.ts:@fetch(", type: http, role: request, method: GET, address: "{env:API_URL}/api/orders/{param:job.data.id}", hops: [] }
+routes:
+  - { at: "api:src/routes/orders.ts:@ordersRouter.get(\"/\"", kind: http, method: GET, template: /api/orders, component: api }
+  - { at: "api:src/routes/orders.ts:@ordersRouter.post(", kind: http, method: POST, template: /api/orders, component: api }
+  - { at: "api:src/routes/orders.ts:@ordersRouter.get(\"/:id\"", kind: http, method: GET, template: "/api/orders/:id", component: api }
+  - { at: "api:src/routes/users.ts:@.get(", kind: http, method: GET, template: /api/users/me, component: api }
+  - { at: "api:src/routes/users.ts:@.put(", kind: http, method: PUT, template: /api/users/me, component: api }

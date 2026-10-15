@@ -1,0 +1,9 @@
+sites:
+  - { at: "client:src/items.ts:@/items`", type: http, role: request, method: GET, address: "/api/orders/{param:orderId}/items", hops: [] }
+  - { at: "client:src/items.ts:@/search?q=", type: http, role: request, method: GET, address: "/api/orders/search?q={param:term}", hops: [] }
+routes:
+  - { at: "orders:src/orders.ts:@\"/orders/search\"", kind: http, method: GET, template: /api/orders/search, component: orders-api }
+  - { at: "orders:src/orders.ts:@/items\"", kind: http, method: GET, template: "/api/orders/:id/items", component: orders-api }
+links:
+  - { site: "client:src/items.ts:@/items`", target: "http:GET:/api/orders/:id/items@orders-api", case: 2 }
+  - { site: "client:src/items.ts:@/search?q=", target: "http:GET:/api/orders/search@orders-api", case: 2 }

@@ -1,0 +1,15 @@
+# Case 7: the request goes through a gateway whose rule picks the service and
+# rewrites the path.
+name: case7
+repos:
+  - { id: client, path: client, role: main, licence: MIT, publishable: true }
+  - { id: orders, path: orders, role: main, licence: MIT, publishable: true }
+  - { id: catalog, path: catalog, role: main, licence: MIT, publishable: true }
+  - { id: infra, path: infra, role: infra, licence: MIT, publishable: true }
+components:
+  - { id: web, kind: client, include: ["client:**"] }
+  - { id: orders-api, kind: service, include: ["orders:**"] }
+  - { id: catalog-api, kind: service, include: ["catalog:**"] }
+  - { id: nginx, kind: gateway }
+rules: { packs: [generic@1] }
+infra: { nginx: ["infra:nginx.conf"] }
