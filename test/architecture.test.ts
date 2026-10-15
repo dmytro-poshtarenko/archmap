@@ -12,11 +12,27 @@ import { toolRoot } from "../src/core/paths.js";
  */
 const METHOD = ["core", "config", "store", "workspace", "extract", "infra", "classify", "match", "llm", "map", "mcp"];
 const REFERENCE = ["labelling", "eval"];
+/** Modules that compute the method's answers; the labelling interface must never show them. */
+const RESULTS = ["extract", "infra", "classify", "match", "llm", "map", "mcp", "eval", "experiments"];
 
 const SPECIFIER = /(?:^|\s)(?:import|export)\s[^'"]*?from\s*["']([^"']+)["']|import\(\s*["']([^"']+)["']\s*\)|^import\s*["']([^"']+)["']/gm;
 
 function moduleOf(file: string): string | undefined {
   return relative(join(toolRoot, "src"), file).split("/")[0];
+}
+
+function reachable(graph: Map<string, string[]>, start: string): Set<string> {
+  const seen = new Set<string>([start]);
+  const stack = [start];
+  while (stack.length > 0) {
+    for (const dep of graph.get(stack.pop() as string) ?? []) {
+      if (!seen.has(dep)) {
+        seen.add(dep);
+        stack.push(dep);
+      }
+    }
+  }
+  return seen;
 }
 
 function localImports(file: string): string[] {
@@ -47,6 +63,19 @@ describe("architecture", () => {
         }
       }
     }
+    expect(violations).toEqual([]);
+  });
+
+  it("keeps the labelling blind to the method's answers", () => {
+    const files = globSync(["src/**/*.ts"], { cwd: toolRoot, absolute: true });
+    const graph = new Map(files.map((f) => [f, localImports(f)]));
+    const violations = files
+      .filter((f) => moduleOf(f) === "labelling")
+      .flatMap((start) =>
+        [...reachable(graph, start)]
+          .filter((dep) => RESULTS.includes(moduleOf(dep) ?? ""))
+          .map((dep) => `${relative(toolRoot, start)} -> ${relative(toolRoot, dep)}`),
+      );
     expect(violations).toEqual([]);
   });
 

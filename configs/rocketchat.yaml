@@ -48,7 +48,8 @@ components:
   - { id: nats, kind: bus }
   - { id: mongo, kind: database }
 
-# Test, story and mock code is not part of the running system.
+# Only code of the running system is inventoried: tests, stories, mocks, type declarations,
+# and build, release and developer tooling are left out.
 exclude:
   - "**/*.spec.*"
   - "**/*.test.*"
@@ -59,6 +60,18 @@ exclude:
   - "**/.storybook/**"
   - "**/mock-providers/**"
   - "**/*.d.ts"
+  - "**/.yarn/**"
+  - "**/.github/**"
+  - "**/.claude/**"
+  - "**/*.config.{js,mjs,cjs,ts}"
+  - "scripts/**"
+  - "**/*release-action/**"
+  - "**/release-changelog/**"
+
+# Reference labelling: candidates come from a text search independent of the extraction rules.
+labelling:
+  packs: [generic@1, rocketchat@1]
+  gapFiles: 20
 
 rules:
   packs: [generic@1, rocketchat@1]

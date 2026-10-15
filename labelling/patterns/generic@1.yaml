@@ -1,0 +1,32 @@
+# Candidate search for common Node.js and browser clients. Broad on purpose:
+# false candidates are rejected while labelling, missed sites are not.
+id: generic
+version: 1
+description: HTTP, websocket, message queue, database and scheduler clients of the Node.js and browser ecosystem
+
+patterns:
+  # Requests over the network
+  - { id: fetch, type: http, regex: '(?<![\w.$])fetch\s*\(' }
+  - { id: axios, type: http, regex: '\baxios(?:\.(?:get|post|put|patch|delete|head|options|request|create))?\s*\(' }
+  - { id: verb-with-path, type: http, regex: '\.(?:get|post|put|patch|delete)\s*\(\s*[''"`]/', note: 'client instances called with a path; also catches route declarations' }
+  - { id: node-http, type: http, regex: '\bhttps?\.(?:request|get)\s*\(' }
+  - { id: http-libraries, type: http, regex: '\b(?:got|ky|superagent)(?:\.\w+)?\s*\(' }
+  - { id: xhr, type: http, regex: '\bnew\s+XMLHttpRequest\s*\(' }
+  - { id: socket, type: http, regex: '\bnew\s+(?:WebSocket|EventSource)\s*\(' }
+  # Message brokers and queues
+  - { id: moleculer, type: broker, regex: '\b(?:broker|ctx)\.(?:call|emit|broadcast|mcall)\s*\(' }
+  - { id: amqp, type: broker, regex: '\.(?:sendToQueue|assertQueue|consume)\s*\(' }
+  - { id: queue-classes, type: broker, regex: '\bnew\s+(?:Queue|Worker|QueueEvents)\s*\(' }
+  - { id: kafka, type: broker, regex: '\.(?:producer|consumer)\s*\(\s*\{' }
+  # Databases
+  - { id: mongo-collection, type: db, regex: '\.collection\s*\(' }
+  - { id: mongo-client, type: db, regex: '\bnew\s+MongoClient\s*\(' }
+  - { id: mongoose-model, type: db, regex: '\bmongoose\.model\s*\(' }
+  - { id: sql, type: db, regex: '[''"`]\s*(?:SELECT|INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s' }
+  # Scheduled and event-triggered work
+  - { id: cron-libraries, type: trigger, regex: '\b(?:cron\.schedule|schedule\.scheduleJob|new\s+CronJob)\s*\(' }
+  - { id: agenda, type: trigger, regex: '\bagenda\.(?:define|every|schedule|now)\s*\(' }
+
+gapImports:
+  - 'from\s+[''"](?:axios|node-fetch|got|ky|superagent|amqplib|bullmq|bull|kafkajs|nats|mqtt|moleculer)[''"]'
+  - '(?<![\w.$])fetch\s*\('

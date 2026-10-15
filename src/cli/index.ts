@@ -2,6 +2,7 @@
 import { Command } from "commander";
 import { registerFetch } from "./commands/fetch.js";
 import { registerInventory } from "./commands/inventory.js";
+import { registerLabel } from "./commands/label.js";
 import { registerLicenceCheck } from "./commands/licenceCheck.js";
 import { registerPin } from "./commands/pin.js";
 import { DEFAULT_CONFIG } from "./context.js";
@@ -16,6 +17,7 @@ registerPin(program);
 registerFetch(program);
 registerInventory(program);
 registerLicenceCheck(program);
+registerLabel(program);
 
 try {
   await program.parseAsync(process.argv);

@@ -1,0 +1,38 @@
+# Candidate search for the client and service APIs of Rocket.Chat. Written
+# from the public package interfaces, independently of the extraction rules.
+id: rocketchat
+version: 1
+description: REST, DDP, Moleculer broker, MongoDB model and cron APIs of Rocket.Chat
+
+lists:
+  # Broker service proxies: `export const Presence = proxify<IPresence>('presence')`
+  services: { file: 'main:packages/core-services/src/index.ts', regex: '^export const (\w+) = proxify<' }
+  # MongoDB model proxies: `export const Users = proxify<IUsersModel>('IUsersModel')`
+  models: { file: 'main:packages/models/src/index.ts', regex: '^export const (\w+) = proxify<' }
+
+patterns:
+  # REST
+  - { id: use-endpoint, type: http, regex: '\buseEndpoint\s*[(<]', note: 'web client hook; the hook call fixes the route' }
+  - { id: sdk-rest, type: http, regex: '\bsdk\.rest\.(?:get|post|put|delete|upload)\b' }
+  - { id: livechat-client, type: http, regex: '\bLivechat\.\w+\s*\(', note: 'typed livechat client from @rocket.chat/ddp-client' }
+  - { id: server-fetch, type: http, regex: '\bserverFetch\s*\(' }
+  - { id: rest-path, type: http, regex: '(?:[''"`/}]api/(?:v1|apps|info)\b|[''"`]/v1/)(?![^''"`\n]*[''"`]\??\s*:)', note: 'REST path literals wherever they are passed, except object keys of type maps' }
+  # DDP: Meteor methods and subscriptions over the websocket
+  - { id: meteor-call, type: ddp, regex: '\bMeteor\.(?:call|callAsync|apply|applyAsync)\s*\(' }
+  - { id: sdk-call, type: ddp, regex: '\bsdk\.(?:call|callAsync|methodCallWrapper)\s*\(|\.client\.callAsync\s*\(' }
+  - { id: use-method, type: ddp, regex: '\buseMethod\s*\(' }
+  - { id: subscription, type: ddp, regex: '\b(?:sdk\.stream|useStream|Meteor\.subscribe|sdk\.subscribe)\s*\(' }
+  # Moleculer broker: service actions and events
+  - { id: service-proxy, type: broker, regex: '(?<![\w.$]){{services}}\.\w+\s*\(' }
+  - { id: api-call, type: broker, regex: '\bapi\.(?:call|waitAndCall)\s*\(' }
+  - { id: broadcast, type: broker, regex: '\bapi\.broadcast\w*\s*\(' }
+  - { id: on-event, type: broker, regex: '\.onEvent\s*\(' }
+  # MongoDB through the model proxies
+  - { id: model-call, type: db, regex: '(?<![\w.$]){{models}}\.\w+\s*\(' }
+  # Scheduled jobs
+  - { id: cron-job, type: trigger, regex: '\bcronJobs\.(?:add|addAtTimestamp)\s*\(' }
+
+gapImports:
+  - 'from\s+[''"]@rocket\.chat/(?:server-fetch|core-services|ddp-client|api-client)[''"]'
+  - '\b(?:useEndpoint|useMethod|useStream)\b'
+  - '\bsdk\.(?:rest|call|stream)\b'

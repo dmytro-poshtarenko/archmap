@@ -1,6 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import Database from "better-sqlite3";
+import { runMigrations } from "./migrate.js";
 import { migrations } from "./migrations.js";
 
 export type Db = Database.Database;
@@ -20,20 +21,8 @@ export function schemaVersion(db: Db): number {
   return db.pragma("user_version", { simple: true }) as number;
 }
 
-/** Applies every migration newer than the database, each in its own transaction. */
 export function migrate(db: Db): number {
-  const current = schemaVersion(db);
-  if (current > SCHEMA_VERSION) {
-    throw new Error(`database schema v${current} is newer than this tool (v${SCHEMA_VERSION})`);
-  }
-  for (const m of migrations) {
-    if (m.version <= current) continue;
-    db.transaction(() => {
-      db.exec(m.sql);
-      db.pragma(`user_version = ${m.version}`);
-    })();
-  }
-  return schemaVersion(db);
+  return runMigrations(db, migrations);
 }
 
 export function setMeta(db: Db, key: string, value: string): void {

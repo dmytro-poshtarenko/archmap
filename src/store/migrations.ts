@@ -1,14 +1,6 @@
-/**
- * Forward-only schema migrations. A migration is never edited after it has
- * been applied to a real workspace; schema changes go into a new entry.
- * The applied version is tracked with `PRAGMA user_version`.
- */
-export interface Migration {
-  version: number;
-  name: string;
-  sql: string;
-}
+import type { Migration } from "./migrate.js";
 
+/** Schema of the method database (`data/db/<target>.sqlite`). */
 export const migrations: Migration[] = [
   {
     version: 1,

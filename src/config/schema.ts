@@ -81,6 +81,14 @@ export const TargetConfig = z.strictObject({
     })
     .prefault({}),
   interactionTypes: z.array(InteractionType).default(["http", "ddp", "broker", "db", "trigger"]),
+  labelling: z
+    .strictObject({
+      /** Candidate pattern packs, read from `labelling/patterns/<id>@<version>.yaml`. */
+      packs: z.array(z.string().regex(/^[a-z0-9-]+@\d+$/, "expected 'id@version'")).default([]),
+      /** Files read in full to estimate how many call sites the text search misses. */
+      gapFiles: z.number().int().nonnegative().default(20),
+    })
+    .prefault({}),
   /** LLM settings are defined by the LLM layer (milestone M7). */
   llm: z.record(z.string(), z.unknown()).optional(),
   experiment: z.strictObject({
