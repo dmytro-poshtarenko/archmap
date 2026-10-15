@@ -11,6 +11,8 @@ import { registerInventory } from "./commands/inventory.js";
 import { registerLabel } from "./commands/label.js";
 import { registerLicenceCheck } from "./commands/licenceCheck.js";
 import { registerLlm } from "./commands/llm.js";
+import { registerMap } from "./commands/map.js";
+import { registerMcp } from "./commands/mcp.js";
 import { registerMatch } from "./commands/match.js";
 import { registerPin } from "./commands/pin.js";
 import { DEFAULT_CONFIG } from "./context.js";
@@ -34,6 +36,8 @@ registerMatch(program);
 registerEvaluate(program);
 registerLlm(program);
 registerExperiments(program);
+registerMap(program);
+registerMcp(program);
 
 try {
   await program.parseAsync(process.argv);

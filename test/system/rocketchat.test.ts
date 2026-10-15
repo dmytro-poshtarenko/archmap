@@ -7,12 +7,14 @@ import { loadConfig } from "../../src/config/load.js";
 import { dataLayout, resolveDataDir, toolRoot } from "../../src/core/paths.js";
 import { hashOf } from "../../src/core/hash.js";
 import { compareRoutes, typedRoutes } from "../../src/eval/restTypings.js";
-import { extractAll, programOf } from "../../src/extract/run.js";
+import { extractAll, loadSites, programOf } from "../../src/extract/run.js";
 import { loadRules } from "../../src/extract/rules.js";
 import { extractInfra } from "../../src/infra/index.js";
 import { hostOf } from "../../src/infra/model.js";
+import { featureOf, type FeatureRequest } from "../../src/map/feature.js";
+import { buildGraph } from "../../src/map/graph.js";
 import { ALL_SOURCES } from "../../src/match/resolve.js";
-import { matchingOf } from "../../src/match/run.js";
+import { loadLinks, matchingOf } from "../../src/match/run.js";
 import { locateRepo } from "../../src/workspace/repos.js";
 
 /**
@@ -84,4 +86,20 @@ describe.runIf(enabled)("Rocket.Chat system", () => {
     // DDP declarations have no rules: without the language model no DDP site links
     expect(sites.filter((s, i) => s.type === "ddp" && all[i]?.status === "linked")).toHaveLength(0);
   }, 60_000);
+
+  it("passes the acceptance scenarios of the feature views (docs/m9-acceptance.md)", () => {
+    const graph = buildGraph(loaded.config, "full", loadSites(db as never), loadLinks(db as never, "full"));
+    const parts = (req: Omit<FeatureRequest, "name">) => new Set(featureOf(graph, { name: "s", ...req }).elements.map((e) => e.split(".")[0]));
+    const scenarios: Array<[Omit<FeatureRequest, "name">, string[], string[]]> = [
+      [{ seeds: ["ns:presence"], depth: 1, direction: "in", kinds: ["rpc"] }, ["presence-service", "rocketchat", "ddp-streamer-service"], ["web-client", "livechat", "desktop", "mongo"]],
+      [{ seeds: ["livechat"], depth: 1, direction: "out", kinds: ["http"] }, ["livechat", "rocketchat"], ["presence-service", "authorization-service", "ddp-streamer-service"]],
+      [{ seeds: ["coll:users"], depth: 1, direction: "in", kinds: ["db"] }, ["rocketchat", "account-service", "presence-service"], ["web-client", "livechat", "desktop"]],
+      [{ seeds: ["ns:authorization"], depth: 1, direction: "in", kinds: ["rpc"] }, ["authorization-service", "rocketchat"], ["web-client", "livechat", "desktop"]],
+    ];
+    for (const [req, must, mustNot] of scenarios) {
+      const got = parts(req);
+      for (const p of must) expect(got, `${req.seeds[0]} must reach ${p}`).toContain(p);
+      for (const p of mustNot) expect(got, `${req.seeds[0]} must not reach ${p}`).not.toContain(p);
+    }
+  });
 });
