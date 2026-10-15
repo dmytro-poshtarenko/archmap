@@ -2,6 +2,7 @@
 import { Command } from "commander";
 import { registerCheckRoutes } from "./commands/checkRoutes.js";
 import { registerClassify } from "./commands/classify.js";
+import { registerEvaluate } from "./commands/evaluate.js";
 import { registerExtract } from "./commands/extract.js";
 import { registerExtractInfra } from "./commands/extractInfra.js";
 import { registerFetch } from "./commands/fetch.js";
@@ -28,6 +29,7 @@ registerCheckRoutes(program);
 registerExtractInfra(program);
 registerClassify(program);
 registerMatch(program);
+registerEvaluate(program);
 
 try {
   await program.parseAsync(process.argv);

@@ -6,3 +6,8 @@ coverage/
 *.sqlite-shm
 .env
 .DS_Store
+
+# analysis (uv)
+analysis/.venv/
+__pycache__/
+.pytest_cache/
