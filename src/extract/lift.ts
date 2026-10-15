@@ -3,6 +3,7 @@ import type { AbstractValue, Hop } from "../core/types.js";
 import type { CallMatcher, RawSite } from "./calls.js";
 import { type Evaluator, NO_PARAMS, type ParamArg, type ParamEnv } from "./evaluate.js";
 import type { Program } from "./program.js";
+import { inRepoGlob } from "./calls.js";
 import { enclosingFunction, resolveExport, resolveSymbol } from "./scope.js";
 import { literalOf, paramParts, paramPositions, withHop } from "./value.js";
 
@@ -33,44 +34,63 @@ interface Caller {
 export class Lifter {
   private importers: Map<string, Set<string>> | undefined;
   private readonly calls = new Map<string, ts.CallExpression[]>();
+  private memberCalls: Map<string, ts.CallExpression[]> | undefined;
 
   constructor(
     private readonly program: Program,
     private readonly matcher: CallMatcher,
     private readonly evaluator: Evaluator,
-    private readonly opts: { maxDepth: number; files: string[] },
+    private readonly opts: {
+      maxDepth: number;
+      files: string[];
+      /** Client library code: its calls are sites only where application code calls the library. */
+      libraries?: string[];
+      /** Library classes whose methods are followed to the calls on their instances. */
+      facades?: Array<{ class: string; file: string }>;
+    },
   ) {}
+
+  private inLibrary(node: ts.Node): boolean {
+    const id = this.program.idOf(node);
+    return (this.opts.libraries ?? []).some((g) => inRepoGlob(g, id));
+  }
 
   place(raw: RawSite): PlacedSite[] {
     const keep: PlacedSite = { raw, at: raw.node, address: raw.address, method: raw.method, liftedFrom: null };
+    const library = this.inLibrary(raw.node);
     const fn = enclosingFunction(raw.node);
-    if (!fn || this.opts.maxDepth === 0) return [keep];
-    const decision = this.decision(raw, fn);
+    if (!fn || this.opts.maxDepth === 0) return library ? [] : [keep];
+    const decision = library ? "lift" : this.decision(raw, fn);
     if (decision === "keep") return [keep];
     // A recursive call passes the address along; it never fixes it.
     const callers = this.callersOf(fn).filter((c) => enclosingFunction(c.call) !== fn);
-    if (callers.length === 0) return [keep];
+    if (callers.length === 0) return library ? [] : [keep];
     if (decision === "maybe" && !callers.every((c) => this.passesPaths(raw, fn, c.call))) return [keep];
     const out: PlacedSite[] = [];
     const seen = new Set<string>();
-    for (const c of callers) this.liftThrough(raw, [{ fn, caller: c }], out, seen);
-    return out.length > 0 ? out : [keep];
+    for (const c of callers) this.liftThrough(raw, [{ fn, caller: c }], out, seen, library);
+    if (out.length > 0) return out;
+    return library ? [] : [keep];
   }
 
   /** Whether the site's values depend on the function's parameters in a way that decides the target. */
   private decision(raw: RawSite, fn: Fn): "keep" | "lift" | "maybe" {
+    return this.decide(raw.binding.type, raw.address, raw.method, fn);
+  }
+
+  private decide(type: string, address: AbstractValue, method: AbstractValue | null, fn: Fn): "keep" | "lift" | "maybe" {
     const fnId = this.program.nodeId(fn);
-    const ownMethod = raw.method ? paramParts(raw.method).some((p) => p.fn === fnId) : false;
-    const positions = paramPositions(raw.address).filter((p) => p.param.fn === fnId);
+    const ownMethod = method ? paramParts(method).some((p) => p.fn === fnId) : false;
+    const positions = paramPositions(address).filter((p) => p.param.fn === fnId);
     if (ownMethod) return "lift";
     if (positions.length === 0) return "keep";
-    if (raw.binding.type !== "http") return "lift";
+    if (type !== "http") return "lift";
     if (positions.some((p) => p.position === "inside")) return "lift";
     return positions.every((p) => p.position === "query") ? "keep" : "maybe";
   }
 
   /** Whether a caller passes a path (text with a slash) for every segment parameter. */
-  private passesPaths(raw: RawSite, fn: Fn, call: ts.CallExpression): boolean {
+  private passesPaths(raw: RawSite | { address: AbstractValue }, fn: Fn, call: ts.CallExpression): boolean {
     const fnId = this.program.nodeId(fn);
     for (const p of paramPositions(raw.address)) {
       if (p.param.fn !== fnId || p.position !== "segment") continue;
@@ -82,7 +102,7 @@ export class Lifter {
     return true;
   }
 
-  private liftThrough(raw: RawSite, chain: Array<{ fn: Fn; caller: Caller }>, out: PlacedSite[], seen: Set<string>): void {
+  private liftThrough(raw: RawSite, chain: Array<{ fn: Fn; caller: Caller }>, out: PlacedSite[], seen: Set<string>, library: boolean): void {
     // Bind each function's parameters to its caller's arguments, outermost first.
     let env: ParamEnv = NO_PARAMS;
     for (let i = chain.length - 1; i >= 0; i--) {
@@ -103,21 +123,27 @@ export class Lifter {
     const decorate = (v: AbstractValue) => hops.reduceRight((acc, h) => withHop(acc, h), v);
 
     const next = enclosingFunction(outer.caller.call);
-    const nextId = next ? this.program.nodeId(next) : undefined;
-    const dependsOnNext =
-      nextId !== undefined &&
-      (paramParts(values.address).some((p) => p.fn === nextId) || (values.method ? paramParts(values.method).some((p) => p.fn === nextId) : false));
-    if (next && dependsOnNext && chain.length < this.opts.maxDepth) {
+    const stillInLibrary = library && this.inLibrary(outer.caller.call);
+    if (next && chain.length < this.opts.maxDepth + (library ? 2 : 0)) {
+      // Inside a library every level is lifted; in application code only a
+      // parameter that decides the target is (an id in a path segment is not).
+      const decision = stillInLibrary ? "lift" : this.decide(raw.binding.type, values.address, values.method, next);
       const inChain = new Set<ts.Node>([...chain.map((l) => l.fn), next]);
-      const callers = this.callersOf(next).filter((c) => {
-        const at = enclosingFunction(c.call);
-        return !at || !inChain.has(at);
-      });
-      if (callers.length > 0) {
-        for (const c of callers) this.liftThrough(raw, [...chain, { fn: next, caller: c }], out, seen);
+      const callers =
+        decision === "keep"
+          ? []
+          : this.callersOf(next).filter((c) => {
+              const at = enclosingFunction(c.call);
+              return !at || !inChain.has(at);
+            });
+      const lift = callers.length > 0 && (decision === "lift" || callers.every((c) => this.passesPaths({ address: values.address }, next, c.call)));
+      if (lift) {
+        for (const c of callers) this.liftThrough(raw, [...chain, { fn: next, caller: c }], out, seen, library);
         return;
       }
     }
+    // A library call that never reaches application code is no site.
+    if (stillInLibrary) return;
     const key = this.program.nodeId(outer.caller.call);
     if (seen.has(key)) return;
     seen.add(key);
@@ -130,8 +156,9 @@ export class Lifter {
     });
   }
 
-  /** Calls of a named function, in its own file and in the files importing it. */
+  /** Calls of a named function, in its own file and in the files importing it; or of a facade method on its instances. */
   callersOf(fn: Fn): Caller[] {
+    if (ts.isMethodDeclaration(fn)) return this.facadeCallers(fn);
     const decl = declarationOf(fn);
     if (!decl) return [];
     const home = this.program.idOf(fn);
@@ -151,6 +178,64 @@ export class Lifter {
       }
     }
     return out;
+  }
+
+  /** `x.method(...)` where `x` is an instance of the facade class declaring the method, and `this.method(...)` inside it. */
+  private facadeCallers(method: ts.MethodDeclaration): Caller[] {
+    const cls = method.parent;
+    if (!ts.isClassDeclaration(cls) || !cls.name || !method.name || !ts.isIdentifier(method.name)) return [];
+    const id = this.program.idOf(cls);
+    const facade = (this.opts.facades ?? []).some((f) => f.class === cls.name?.text && inRepoGlob(f.file, id));
+    if (!facade) return [];
+    if (!this.memberCalls) {
+      this.memberCalls = new Map();
+      for (const fileId of this.opts.files) {
+        for (const call of this.callsIn(fileId)) {
+          if (!ts.isPropertyAccessExpression(call.expression)) continue;
+          const name = call.expression.name.text;
+          const list = this.memberCalls.get(name) ?? [];
+          list.push(call);
+          this.memberCalls.set(name, list);
+        }
+      }
+    }
+    const out: Caller[] = [];
+    for (const call of this.memberCalls.get(method.name.text) ?? []) {
+      const receiver = (call.expression as ts.PropertyAccessExpression).expression;
+      const found = this.classOf(receiver, 0);
+      if (found?.cls === cls) out.push({ call, hops: found.hops });
+    }
+    return out;
+  }
+
+  /** The class an expression is an instance of: `new C()`, `C.create()`, `this`, or a constant holding one. */
+  private classOf(expr: ts.Expression, depth: number): { cls: ts.ClassDeclaration; hops: Hop[] } | undefined {
+    if (depth > 6) return undefined;
+    let e = expr;
+    while (ts.isParenthesizedExpression(e) || ts.isAsExpression(e) || ts.isNonNullExpression(e) || ts.isAwaitExpression(e)) e = e.expression;
+    if (e.kind === ts.SyntaxKind.ThisKeyword) {
+      for (let n: ts.Node | undefined = e.parent; n; n = n.parent) if (ts.isClassDeclaration(n)) return { cls: n, hops: [] };
+      return undefined;
+    }
+    const classNamed = (id: ts.Identifier) => {
+      const r = resolveSymbol(this.program, id);
+      return r.target.kind === "binding" && r.target.binding.kind === "class" && ts.isClassDeclaration(r.target.binding.decl)
+        ? { cls: r.target.binding.decl, hops: r.hops }
+        : undefined;
+    };
+    if (ts.isNewExpression(e) && ts.isIdentifier(e.expression)) return classNamed(e.expression);
+    if (ts.isCallExpression(e) && ts.isPropertyAccessExpression(e.expression) && ts.isIdentifier(e.expression.expression)) {
+      return classNamed(e.expression.expression);
+    }
+    if (ts.isIdentifier(e)) {
+      const r = resolveSymbol(this.program, e);
+      const t = r.target;
+      if (t.kind === "binding" && t.binding.kind === "var" && t.binding.decl.initializer && !t.binding.element) {
+        const inner = this.classOf(t.binding.decl.initializer, depth + 1);
+        return inner && { cls: inner.cls, hops: [...r.hops, { kind: "const", at: this.program.where(t.binding.decl), name: e.text }, ...inner.hops] };
+      }
+    }
+    return undefined;
   }
 
   private callsIn(fileId: string): ts.CallExpression[] {

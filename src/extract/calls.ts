@@ -1,3 +1,4 @@
+import picomatch from "picomatch";
 import { ts } from "ts-morph";
 import type { AbstractValue, Hop } from "../core/types.js";
 import { importOrigin } from "./detectors/express.js";
@@ -5,7 +6,7 @@ import { type Evaluator, memberName, NO_PARAMS, type ParamEnv } from "./evaluate
 import type { Program } from "./program.js";
 import type { Binding, Callee, Factory, RuleSet, ValueSpec } from "./rules.js";
 import { resolveSymbol } from "./scope.js";
-import { joinUrl, lit, literalOf, withHop } from "./value.js";
+import { concat, joinUrl, lit, literalOf, withHop } from "./value.js";
 
 type CallNode = ts.CallExpression | ts.NewExpression;
 
@@ -47,11 +48,15 @@ function shapeOf(callee: ts.Expression): Shape | undefined {
  * addresses. A binding matches when its callee does (see `Callee`); the first
  * matching binding wins.
  */
+/** Tables that detectors build from the code, for `lookup` value specs. */
+export type Tables = ReadonlyMap<string, ReadonlyMap<string, AbstractValue>>;
+
 export class CallMatcher {
   constructor(
     private readonly program: Program,
     private readonly evaluator: Evaluator,
     private readonly rules: RuleSet,
+    private readonly tables: Tables = new Map(),
   ) {}
 
   detect(fileIds: string[]): RawSite[] {
@@ -96,6 +101,7 @@ export class CallMatcher {
       if (!whole(pattern).test(shape.members[i] ?? "")) return undefined;
     }
     if (callee.fileImports && !imports.has(callee.fileImports)) return undefined;
+    if (callee.file && !inRepoGlob(callee.file, this.program.idOf(node))) return undefined;
     const root = shape.root;
     if (callee.receiver === "any") return { factory: undefined };
     if (!ts.isIdentifier(root)) return undefined;
@@ -111,8 +117,12 @@ export class CallMatcher {
       return origin.name === wanted || (wanted === "default" && origin.name === "*") ? { factory: undefined } : undefined;
     }
     if (callee.instance !== undefined) {
-      const factory = this.rules.factories.get(callee.instance);
-      return factory ? this.instanceOf(root, factory) : undefined;
+      for (const name of callee.instance.split("|")) {
+        const factory = this.rules.factories.get(name);
+        const found = factory ? this.instanceOf(root, factory) : undefined;
+        if (found) return found;
+      }
+      return undefined;
     }
     return undefined;
   }
@@ -168,30 +178,52 @@ export class CallMatcher {
   }
 
   private spec(specs: ValueSpec[], node: CallNode, members: string[], factory: RawSite["factory"], params: ParamEnv): AbstractValue | undefined {
-    const args = node.arguments ?? ts.factory.createNodeArray<ts.Expression>();
     for (const s of specs) {
-      if ("arg" in s) {
-        const arg = args[s.arg];
-        if (!arg || ts.isSpreadElement(arg)) continue;
-        const v = s.key === undefined ? this.evaluator.evaluate(arg, params) : this.evaluator.property(arg, [s.key], params);
-        if (v) return v;
-        continue;
-      }
-      if ("member" in s) {
-        const name = members.at(s.member);
-        if (name !== undefined) return lit(name);
-        continue;
-      }
-      if ("factory" in s) {
-        const v = factory?.values[s.factory];
-        if (v) return v;
-        continue;
-      }
-      if ("value" in s) return lit(s.value);
-      return lit(s.default);
+      const v = this.one(s, node, members, factory, params);
+      if (v) return v;
     }
     return undefined;
   }
+
+  private one(s: ValueSpec, node: CallNode, members: string[], factory: RawSite["factory"], params: ParamEnv): AbstractValue | undefined {
+    if ("arg" in s) {
+      const arg = node.arguments?.[s.arg];
+      if (!arg || ts.isSpreadElement(arg)) return undefined;
+      return s.key === undefined ? this.evaluator.evaluate(arg, params) : this.evaluator.property(arg, [s.key], params);
+    }
+    if ("member" in s) {
+      const name = members.at(s.member);
+      return name === undefined ? undefined : lit(name);
+    }
+    if ("factory" in s) return factory?.values[s.factory];
+    if ("join" in s) {
+      const parts = s.join.map((x) => this.one(x, node, members, factory, params));
+      return parts.every((x): x is AbstractValue => x !== undefined) ? concat(...parts) : undefined;
+    }
+    if ("lookup" in s) {
+      const key = this.one(s.key, node, members, factory, params);
+      const text = key ? literalOf(key) : undefined;
+      const found = text === undefined ? undefined : this.tables.get(s.lookup)?.get(text);
+      return found && key ? { parts: found.parts, hops: [...key.hops, ...found.hops] } : undefined;
+    }
+    if ("value" in s) return lit(s.value);
+    return lit(s.default);
+  }
+}
+
+const globCache = new Map<string, (path: string) => boolean>();
+
+/** Whether a file id `repo:path` matches a `repo:glob`. */
+export function inRepoGlob(repoGlob: string, id: string): boolean {
+  const at = repoGlob.indexOf(":");
+  const repo = repoGlob.slice(0, at);
+  if (!id.startsWith(`${repo}:`)) return false;
+  let match = globCache.get(repoGlob);
+  if (!match) {
+    match = picomatch(repoGlob.slice(at + 1), { dot: true });
+    globCache.set(repoGlob, match);
+  }
+  return match(id.slice(repo.length + 1));
 }
 
 const wholeCache = new Map<string, RegExp>();

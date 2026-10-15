@@ -12,6 +12,7 @@ peak resident set size of the process.
 | `archmap inventory` | 10,040 files of three repositories | < 1 s | — |
 | `archmap label candidates` | 5,748 candidates in 1,647 files | 1.5 s | — |
 | `archmap extract` with `generic@1` and `meteor@1` | 8,306 code files | 2.9 s: parse 1.2, calls 1.3, lifting 0.1, routes 0.2 | 0.98 GB |
+| `archmap extract` with `generic@1`, `meteor@1` and `rocketchat@1` | 8,306 code files; 5,250 sites, 1,017 routes | 6.6 s: parse and import graph 1.3, calls 4.3, lifting 0.3, routes 0.7 | 0.96 GB |
 
 To reproduce:
 
@@ -36,4 +37,3 @@ hash. The profile shows none of these is needed:
 - **Type checker on demand.** It stays affordable for the cases the syntactic
   evaluator cannot decide (level 2 of address evaluation).
 
-The figures for the Rocket.Chat rule pack (milestone M3) will be added here.

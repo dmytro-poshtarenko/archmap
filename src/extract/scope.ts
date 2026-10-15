@@ -89,13 +89,13 @@ function declarationsIn(node: ts.Node): Map<string, Binding> | undefined {
 function addImport(s: ts.ImportDeclaration, add: (n: string, b: Binding) => void): void {
   const module = (s.moduleSpecifier as ts.StringLiteral).text;
   const clause = s.importClause;
-  if (!clause || clause.isTypeOnly) return;
+  // Type-only imports stay in scope: type annotations are resolved through them.
+  if (!clause) return;
   if (clause.name) add(clause.name.text, { kind: "import", decl: s, module, imported: "default", local: clause.name });
   const nb = clause.namedBindings;
   if (nb && ts.isNamespaceImport(nb)) add(nb.name.text, { kind: "import", decl: s, module, imported: "*", local: nb.name });
   if (nb && ts.isNamedImports(nb)) {
     for (const spec of nb.elements) {
-      if (spec.isTypeOnly) continue;
       add(spec.name.text, { kind: "import", decl: s, module, imported: (spec.propertyName ?? spec.name).text, local: spec.name });
     }
   }
@@ -123,6 +123,10 @@ export function elementProperty(element: ts.BindingElement): string | undefined 
 export function resolveSymbol(program: Program, id: ts.Identifier): Resolved {
   const binding = bindingOf(id);
   if (binding.kind === "global") return { target: { kind: "global", name: binding.name }, hops: [], imports: [] };
+  if (binding.kind === "var") {
+    const loaded = loadedModule(binding);
+    if (loaded) return resolveLoaded(program, id, binding.decl, loaded);
+  }
   if (binding.kind !== "import") return { target: { kind: "binding", binding }, hops: [], imports: [] };
   const hop: Hop = { kind: "import", at: program.where(binding.decl), name: binding.local.text };
   const imports = [{ module: binding.module, name: binding.imported }];
@@ -132,6 +136,33 @@ export function resolveSymbol(program: Program, id: ts.Identifier): Resolved {
   }
   if (binding.imported === "*") return { target: { kind: "namespace", fileId: r.id }, hops: [hop], imports };
   const exported = resolveExport(program, r.id, binding.imported, new Set());
+  return { target: exported.target, hops: [hop, ...exported.hops], imports: [...imports, ...exported.imports] };
+}
+
+/**
+ * `const { Presence } = await import('@rocket.chat/presence')` and
+ * `const x = require('x')`: the module loaded at run time and the export read.
+ */
+function loadedModule(b: Extract<Binding, { kind: "var" }>): { module: string; name: string } | undefined {
+  let init = b.decl.initializer;
+  while (init && (ts.isAwaitExpression(init) || ts.isParenthesizedExpression(init))) init = init.expression;
+  if (!init || !ts.isCallExpression(init)) return undefined;
+  const isImport = init.expression.kind === ts.SyntaxKind.ImportKeyword;
+  const isRequire = ts.isIdentifier(init.expression) && init.expression.text === "require";
+  const arg = init.arguments[0];
+  if ((!isImport && !isRequire) || !arg || !ts.isStringLiteral(arg)) return undefined;
+  const name = b.element ? elementProperty(b.element) : isRequire ? "default" : "*";
+  return name ? { module: arg.text, name } : undefined;
+}
+
+function resolveLoaded(program: Program, id: ts.Identifier, decl: ts.Node, loaded: { module: string; name: string }): Resolved {
+  const hop: Hop = { kind: "import", at: program.where(decl), name: id.text };
+  const imports = [loaded];
+  const r = program.resolveImport(program.idOf(id), loaded.module);
+  if (r.kind === "external") return { target: { kind: "external", module: loaded.module, name: loaded.name }, hops: [hop], imports };
+  if (loaded.name === "*") return { target: { kind: "namespace", fileId: r.id }, hops: [hop], imports };
+  const exported = resolveExport(program, r.id, loaded.name, new Set());
+  if (loaded.name === "default" && exported.target.kind === "missing") return { target: { kind: "namespace", fileId: r.id }, hops: [hop], imports };
   return { target: exported.target, hops: [hop, ...exported.hops], imports: [...imports, ...exported.imports] };
 }
 

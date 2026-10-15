@@ -1,6 +1,6 @@
 # Посібник із розмітки еталона
 
-Версія: 1.0
+Версія: 1.1
 
 - **Комплекс:** Rocket.Chat. Знімки репозиторіїв зафіксовано в `configs/rocketchat.lock.json`.
 - **Профіль розгортання:** мікросервіси. Змінна `TRANSPORTER` вказує на NATS, тож окремі сервіси працюють у власних контейнерах.
@@ -51,7 +51,7 @@
 |---|---|---|
 | `http` | Запит HTTP через клієнт або його обгортку | `useEndpoint('GET', '/v1/rooms.info')`, `sdk.rest.post(…)`, `fetch(url)`, `Livechat.deleteVisitor()` |
 | `ddp` | Виклик методу Meteor або підписка через вебсокет | `useMethod('saveSettings')`, `sdk.call(…)`, `Meteor.call(…)`, `useStream('notify-room')`, `sdk.stream(…)` |
-| `broker` | Виклик дії сервісу Moleculer, публікація події або підписка на неї | `Presence.setStatus(…)`, `api.call('presence.x', …)`, `api.broadcast('user.nameChanged', …)`, `this.onEvent('watch.users', …)` |
+| `broker` | Виклик дії сервісу Moleculer, публікація події або підписка на неї | `Presence.setStatus(…)`, `api.call('presence.x', …)`, `api.broadcast('user.nameChanged', …)`, `api.emitToOne(…)`, `api.broadcastToServices([…], 'подія', …)`, `this.onEvent('watch.users', …)` |
 | `db` | Звернення до колекції MongoDB | `Users.findOneById(uid)`, `Rooms.updateOne(…)`, `db.collection(…)` |
 | `trigger` | Оголошення фонової задачі за розкладом | `cronJobs.add('NPS', …)` |
 
@@ -181,7 +181,7 @@ callServer('livechat:sendMessage', message); // місце виклику
 
 Причину вибирайте з таких:
 - **`external`** — зовнішня система: Rocket.Chat Cloud, OAuth-провайдери, вебхуки, сервери Matrix, LiveKit, SMTP тощо.
-- **`intra`** — ціль працює в тій самій розгорнутій частині, що й код виклику. Наприклад, сервер викликає дію сервісу брокера, що теж працює в `rocketchat` (`Team.create(…)`, `Message.saveMessage(…)`). Або серверний код викликає власний метод Meteor через `Meteor.callAsync`.
+- **`intra`** — ціль працює в тій самій розгорнутій частині, що й код виклику. Наприклад, сервер викликає дію сервісу брокера, що теж працює в `rocketchat` (`Team.create(…)`, `Message.saveMessage(…)`). Або серверний код викликає власний метод Meteor через `Meteor.callAsync`. Сюди ж належить `api.broadcastLocal(…)`: подію отримує лише той самий процес.
 - **`client-local`** — локальні сховища й об'єкти клієнта з іменами моделей чи сервісів: `Messages.use(…)`, `Rooms.use(…)`, клієнтський `Presence`.
 - **`other`** — інше; поясніть у примітці.
 
@@ -277,3 +277,4 @@ callServer('livechat:sendMessage', message); // місце виклику
 | Версія | Дата | Зміни |
 |---|---|---|
 | 1.0 | 2026-10-15 | Перша редакція до пілотної розмітки |
+| 1.1 | 2026-10-15 | До початку розмітки: `api.emitToOne` і `api.broadcastToServices` публікують подію; `api.broadcastLocal` не виходить за межі процесу, тож це `NONE` (`intra`) |

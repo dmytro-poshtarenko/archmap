@@ -4,10 +4,10 @@ import type { ts } from "ts-morph";
 import type { TargetConfig } from "../config/schema.js";
 import { hashOf } from "../core/hash.js";
 import type { DataLayout } from "../core/paths.js";
-import type { CallSite, RouteDecl } from "../core/types.js";
+import type { AbstractValue, CallSite, RouteDecl } from "../core/types.js";
 import { type Db, getMeta, setMeta } from "../store/db.js";
 import { locateRepo } from "../workspace/repos.js";
-import { CallMatcher } from "./calls.js";
+import { CallMatcher, type Tables } from "./calls.js";
 import { DETECTORS } from "./detectors/index.js";
 import { Evaluator } from "./evaluate.js";
 import { Lifter } from "./lift.js";
@@ -54,34 +54,44 @@ export function runExtraction(
   program: Program,
   opts: { force?: boolean; log?: (m: string) => void } = {},
 ): ExtractStats {
-  const t0 = performance.now();
   const rules = loadRules(config.rules.packs);
   const key = hashOf({ inventory: getMeta(db, "inventory.hash"), rules: rules.hash, liftDepth: config.rules.liftDepth });
   if (!opts.force && getMeta(db, "extract.key") === key) {
     const previous = JSON.parse(getMeta(db, "extract.stats") ?? "{}") as ExtractStats;
     return { ...previous, skipped: true };
   }
+  const { sites, routes, stats } = extractAll(program, rules, config.rules.liftDepth);
+  writeSites(db, sites);
+  writeRoutes(db, routes);
+  setMeta(db, "extract.key", key);
+  setMeta(db, "extract.rulesHash", rules.hash);
+  setMeta(db, "extract.stats", JSON.stringify(stats));
+  return stats;
+}
 
+/** The extraction itself, without storage: call sites and routes of a program under a rule set. */
+export function extractAll(program: Program, rules: RuleSet, liftDepth: number): { sites: CallSite[]; routes: RouteDecl[]; stats: ExtractStats } {
+  const t0 = performance.now();
   const files = program.codeFiles().map((f) => fileId(f.repo, f.path));
   for (const id of files) program.source(id);
+  const usage = componentsOfFiles(program);
   const t1 = performance.now();
 
   const evaluator = new Evaluator(program, { maxDepth: EVAL_DEPTH, valueSources: rules.valueSources });
-  const matcher = new CallMatcher(program, evaluator, rules);
+  const tables = buildTables(program, evaluator, rules);
+  const matcher = new CallMatcher(program, evaluator, rules, tables);
   const raw = matcher.detect(files);
   const t2 = performance.now();
 
-  const lifter = new Lifter(program, matcher, evaluator, { maxDepth: config.rules.liftDepth, files });
-  const placed = raw.flatMap((r) => lifter.place(r));
+  const lifter = new Lifter(program, matcher, evaluator, { maxDepth: liftDepth, files, libraries: rules.libraries, facades: rules.facades });
+  // A call that a binding recognises is its own site even when a lifted call lands on it too.
+  const direct = new Set(raw.map((r) => program.nodeId(r.node)));
+  const placed = raw.flatMap((r) => lifter.place(r)).filter((p) => p.liftedFrom === null || !direct.has(program.nodeId(p.at)));
   const t3 = performance.now();
 
-  const usage = componentsOfFiles(program);
   const sites = toSites(program, placed, usage);
   const routes = findRoutes(program, evaluator, rules, usage);
   const t4 = performance.now();
-
-  writeSites(db, sites);
-  writeRoutes(db, routes);
   const stats: ExtractStats = {
     skipped: false,
     files: files.length,
@@ -90,19 +100,10 @@ export function runExtraction(
     routes: routes.length,
     byType: countBy(sites, (s) => s.type),
     byDetector: countBy(sites, (s) => s.detector),
-    seconds: {
-      parse: round(t1 - t0),
-      calls: round(t2 - t1),
-      lift: round(t3 - t2),
-      routes: round(t4 - t3),
-      total: round(performance.now() - t0),
-    },
+    seconds: { parse: round(t1 - t0), calls: round(t2 - t1), lift: round(t3 - t2), routes: round(t4 - t3), total: round(t4 - t0) },
     rssMb: Math.round(process.memoryUsage().rss / 2 ** 20),
   };
-  setMeta(db, "extract.key", key);
-  setMeta(db, "extract.rulesHash", rules.hash);
-  setMeta(db, "extract.stats", JSON.stringify(stats));
-  return stats;
+  return { sites, routes, stats };
 }
 
 function toSites(program: Program, placed: ReturnType<Lifter["place"]>, usage: Map<string, string[]>): CallSite[] {
@@ -132,14 +133,23 @@ function toSites(program: Program, placed: ReturnType<Lifter["place"]>, usage: M
   return out;
 }
 
+function buildTables(program: Program, evaluator: Evaluator, rules: RuleSet): Tables {
+  const tables = new Map<string, Map<string, AbstractValue>>();
+  for (const name of rules.detectors) {
+    const detector = DETECTORS[name];
+    if (detector?.kind === "table") tables.set(detector.table, detector.build({ program, evaluator, files: program.codeFiles() }));
+  }
+  return tables;
+}
+
 function findRoutes(program: Program, evaluator: Evaluator, rules: RuleSet, usage: Map<string, string[]>): RouteDecl[] {
   const files = program.codeFiles();
   const out: RouteDecl[] = [];
   const ids = new Set<string>();
   for (const name of rules.detectors) {
     const detector = DETECTORS[name];
-    if (!detector) continue;
-    for (const r of detector.run({ program, evaluator, files })) {
+    if (detector?.kind !== "routes") continue;
+    for (const r of detector.run({ program, evaluator, files, usage })) {
       const loc = location(program, r.node);
       let id = loc.id;
       for (let n = 2; ids.has(id); n++) id = `${loc.id}#${n}`;
@@ -155,7 +165,7 @@ function findRoutes(program: Program, evaluator: Evaluator, rules: RuleSet, usag
         template: r.template,
         detector: name,
         source: "rules",
-        components: usage.get(fileId(loc.repo, loc.path)) ?? [],
+        components: r.components ?? usage.get(fileId(loc.repo, loc.path)) ?? [],
         extra: r.extra ?? null,
       });
     }

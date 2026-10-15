@@ -3,9 +3,11 @@ import { fileId, type Program } from "./program.js";
 
 /**
  * Components whose processes run each file: its own component, plus every
- * component whose code imports it, directly or not. A shared package (no
- * component of its own) thus runs wherever it is imported. Type-only imports
- * do not count, nor do dynamic imports, which load code conditionally.
+ * component whose code imports it, directly or not, statically or at run time.
+ * A shared package (no component of its own) thus runs wherever it is
+ * imported. Type-only imports do not count. A module loaded only under a
+ * condition (a deployment profile) is still counted; which registrations a
+ * profile activates is decided when matching.
  */
 export function componentsOfFiles(program: Program): Map<string, string[]> {
   const files = program.codeFiles();
@@ -29,6 +31,24 @@ export function componentsOfFiles(program: Program): Map<string, string[]> {
       const set = edges.get(id) ?? new Set<string>();
       set.add(r.id);
       edges.set(id, set);
+    }
+    // Modules loaded at run time (`await import('x')`, `require('x')`) run there too.
+    if (/\bimport\s*\(|\brequire\s*\(/.test(sf.text)) {
+      const visit = (n: ts.Node) => {
+        if (ts.isCallExpression(n) && n.arguments[0] && ts.isStringLiteral(n.arguments[0])) {
+          const isLoad = n.expression.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier(n.expression) && n.expression.text === "require");
+          if (isLoad) {
+            const r = program.resolveImport(id, n.arguments[0].text);
+            if (r.kind === "file") {
+              const set = edges.get(id) ?? new Set<string>();
+              set.add(r.id);
+              edges.set(id, set);
+            }
+          }
+        }
+        ts.forEachChild(n, visit);
+      };
+      visit(sf);
     }
   }
   const result = new Map<string, Set<string>>();

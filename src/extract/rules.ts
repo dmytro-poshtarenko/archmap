@@ -2,20 +2,36 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { load as parseYaml } from "js-yaml";
 import { z } from "zod";
-import { InteractionType } from "../config/schema.js";
+import { InteractionType, RepoGlob } from "../config/schema.js";
 import { hashOf } from "../core/hash.js";
 import { toolRoot } from "../core/paths.js";
 import { DETECTORS } from "./detectors/index.js";
 
-/** Where a binding reads a value: an argument (or one of its properties), a member name, a factory value, a constant. */
-const ValueSpec = z.union([
-  z.strictObject({ arg: z.number().int().min(0), key: z.string().optional() }),
-  z.strictObject({ member: z.number().int() }),
-  z.strictObject({ factory: z.string() }),
-  z.strictObject({ value: z.string() }),
-  z.strictObject({ default: z.string() }),
-]);
-export type ValueSpec = z.infer<typeof ValueSpec>;
+/**
+ * Where a binding reads a value: an argument (or one of its properties), a
+ * member name, a value captured by the instance's factory, a constant, the
+ * concatenation of several of these, or a lookup in a table that a detector
+ * builds from the code (e.g. model interface → collection).
+ */
+export type ValueSpec =
+  | { arg: number; key?: string }
+  | { member: number }
+  | { factory: string }
+  | { value: string }
+  | { default: string }
+  | { join: ValueSpec[] }
+  | { lookup: string; key: ValueSpec };
+const ValueSpec: z.ZodType<ValueSpec> = z.lazy(() =>
+  z.union([
+    z.strictObject({ arg: z.number().int().min(0), key: z.string().optional() }),
+    z.strictObject({ member: z.number().int() }),
+    z.strictObject({ factory: z.string() }),
+    z.strictObject({ value: z.string() }),
+    z.strictObject({ default: z.string() }),
+    z.strictObject({ join: z.array(ValueSpec).min(1) }),
+    z.strictObject({ lookup: z.string(), key: ValueSpec }),
+  ]),
+);
 /** One spec, or alternatives tried in order until one yields a value. */
 const ValueSpecs = z.union([ValueSpec, z.array(ValueSpec).min(1)]).transform((v) => (Array.isArray(v) ? v : [v]));
 
@@ -25,7 +41,7 @@ const ValueSpecs = z.union([ValueSpec, z.array(ValueSpec).min(1)]).transform((v)
  * - `global`: the root is a name bound nowhere in scope (`fetch`);
  * - `module` + `export`: the root is imported from that module (`axios`, default);
  * - `name`: the root is named so, wherever it comes from;
- * - `instance`: the root was created by a factory (`axios.create(...)`);
+ * - `instance`: the root was created by a factory (`axios.create(...)`); `a|b` accepts several;
  * - `receiver: any`: any root, only the members count (guard it with `fileImports`).
  */
 const Callee = z
@@ -41,6 +57,8 @@ const Callee = z
     new: z.boolean().default(false),
     /** The file must import this module. */
     fileImports: z.string().optional(),
+    /** The call must be in a file matching this `repo:glob`. */
+    file: RepoGlob.optional(),
   })
   .refine((c) => [c.global, c.module, c.name, c.instance, c.receiver].filter((x) => x !== undefined).length === 1, {
     message: "a callee needs exactly one of global, module, name, instance or receiver",
@@ -83,14 +101,24 @@ const PackFile = z.strictObject({
   factories: z.array(Factory).default([]),
   /** Calls that yield a setting or environment value, e.g. `settings.get`. */
   valueSources: z.array(ValueSourceSpec).default([]),
+  /**
+   * Client library code (`repo:glob`). A call inside it is never a site of its
+   * own: it is lifted to the application code calling the library, or dropped.
+   */
+  libraries: z.array(RepoGlob).default([]),
+  /** Library classes whose methods wrap requests: calls of those methods on an instance are lifted through. */
+  facades: z.array(z.strictObject({ class: z.string(), file: RepoGlob })).default([]),
 });
 
 export interface RuleSet {
   refs: string[];
   bindings: Binding[];
   factories: Map<string, Factory>;
+  /** Route detectors and table providers, by id. */
   detectors: string[];
   valueSources: Array<z.infer<typeof ValueSourceSpec>>;
+  libraries: string[];
+  facades: Array<{ class: string; file: string }>;
   /** Hash of the packs and detector versions; part of the freeze manifest. */
   hash: string;
 }
@@ -105,6 +133,8 @@ export function loadRules(refs: string[], root = toolRoot): RuleSet {
   const factories = new Map<string, Factory>();
   const detectors: string[] = [];
   const valueSources: RuleSet["valueSources"] = [];
+  const libraries: string[] = [];
+  const facades: RuleSet["facades"] = [];
   const material: unknown[] = [ENGINE_VERSION];
   for (const ref of refs) {
     const file = join(root, "rules", `${ref}.yaml`);
@@ -116,8 +146,8 @@ export function loadRules(refs: string[], root = toolRoot): RuleSet {
     if (`${pack.id}@${pack.version}` !== ref) throw new RulesError(`${file} declares ${pack.id}@${pack.version}, expected ${ref}`);
     for (const f of pack.factories) factories.set(f.id, f);
     for (const b of pack.bindings) {
-      if (b.callee.instance && !factories.has(b.callee.instance)) {
-        throw new RulesError(`${ref}: binding ${b.id} uses unknown factory ${b.callee.instance}`);
+      for (const f of b.callee.instance?.split("|") ?? []) {
+        if (!factories.has(f)) throw new RulesError(`${ref}: binding ${b.id} uses unknown factory ${f}`);
       }
       bindings.push({ ...b, qualified: `${pack.id}.${b.id}` });
     }
@@ -128,7 +158,9 @@ export function loadRules(refs: string[], root = toolRoot): RuleSet {
       material.push({ detector: d, version: detector.version });
     }
     valueSources.push(...pack.valueSources);
+    libraries.push(...pack.libraries);
+    facades.push(...pack.facades);
     material.push(text);
   }
-  return { refs, bindings, factories, detectors, valueSources, hash: hashOf(material) };
+  return { refs, bindings, factories, detectors, valueSources, libraries, facades, hash: hashOf(material) };
 }

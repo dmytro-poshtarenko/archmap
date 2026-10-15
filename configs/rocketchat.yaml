@@ -33,7 +33,7 @@ licenceZones:
 # Ids follow the docker-compose service names. Shared packages (packages/*, ee/packages/*) stay
 # unmapped here: they are attributed to the components that import them once the module graph exists.
 components:
-  - { id: web-client, kind: client, include: ["main:apps/meteor/client/**"] }
+  - { id: web-client, kind: client, include: ["main:apps/meteor/client/**", "main:apps/meteor/vite/**", "main:apps/meteor/public/**", "main:apps/meteor/packages/**/*client*"] }
   - { id: livechat, kind: client, include: ["main:packages/livechat/**"] }
   - { id: desktop, kind: client, include: ["desktop:**"] }
   - { id: mobile, kind: client, include: ["mobile:**"] }
@@ -74,9 +74,9 @@ labelling:
   packs: [generic@1, rocketchat@1]
   gapFiles: 20
 
-# Extraction rules. The Rocket.Chat pack (REST router, broker, models, cron) comes with milestone M3.
+# Extraction rules: generic clients, Meteor clients, and the Rocket.Chat pack.
 rules:
-  packs: [generic@1, meteor@1]
+  packs: [generic@1, meteor@1, rocketchat@1]
   liftDepth: 3
 
 infra:

@@ -156,9 +156,29 @@ export class Evaluator {
       if (settingKey) return setting(settingKey);
     }
     const name = memberName(expr);
-    if (name === undefined) return dyn("computed member");
+    if (name === undefined) return this.anyProperty(expr.expression, depth) ?? dyn("computed member");
     if (name === "href" || name === "toString") return this.evaluate(expr.expression, params, depth + 1);
+    // Instance state: a value that exists only at run time (a token, an id).
+    if (chain?.[0] === "this") return dyn(chain.join("."));
     return this.property(expr.expression, [name], params, depth + 1) ?? unknown(`no property ${name}`);
+  }
+
+  /** `map[key]` with a key known only at run time: any of the values of a constant object. */
+  private anyProperty(objectExpr: ts.Expression, depth: number): AbstractValue | undefined {
+    let e = objectExpr;
+    const hops: Hop[] = [];
+    if (ts.isIdentifier(e)) {
+      const r = resolveSymbol(this.program, e);
+      const t = r.target;
+      if (t.kind !== "binding" || t.binding.kind !== "var" || !t.binding.decl.initializer || t.binding.element) return undefined;
+      hops.push(...r.hops, { kind: "const", at: this.program.where(t.binding.decl), name: e.text });
+      e = t.binding.decl.initializer;
+    }
+    while (ts.isAsExpression(e) || ts.isSatisfiesExpression(e) || ts.isParenthesizedExpression(e)) e = e.expression;
+    if (!ts.isObjectLiteralExpression(e)) return undefined;
+    const values = e.properties.flatMap((p) => (ts.isPropertyAssignment(p) ? [this.evaluate(p.initializer, NO_PARAMS, depth + 1)] : []));
+    if (values.length === 0) return undefined;
+    return hops.reduceRight((v, h) => withHop(v, h), alts(values));
   }
 
   /**

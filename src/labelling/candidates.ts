@@ -101,7 +101,15 @@ export interface StoredSearch {
 export function storeCandidates(db: Db, candidates: Candidate[], meta: Omit<StoredSearch, "count">): { changed: boolean } {
   const previous = getMeta(db, "candidates.hash");
   const hash = sha256Hex(candidates.map((c) => `${c.id}\t${c.stratum}\t${c.patterns.join(",")}\t${c.textSha}`).join("\n"));
-  if (previous === hash) return { changed: false };
+  if (previous === hash) {
+    // Same population; only the component mapping of the inventory may have changed.
+    const update = db.prepare("UPDATE candidate SET component = ? WHERE id = ?");
+    db.transaction(() => {
+      for (const c of candidates) update.run(c.component, c.id);
+      setMeta(db, "candidates.inventoryHash", meta.inventoryHash);
+    })();
+    return { changed: false };
+  }
   const sampled = db.prepare("SELECT count(*) FROM sample").pluck().get() as number;
   if (sampled > 0) {
     throw new Error("a sample has already been drawn from the candidates; changing them needs 'label sample --force' afterwards");

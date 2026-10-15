@@ -1,0 +1,129 @@
+# Extraction rules for Rocket.Chat: its REST router, Moleculer services and
+# MongoDB model registry, and the client APIs that reach them. Meteor methods,
+# publications and streams deliberately have no declaration rules (case 5).
+id: rocketchat
+version: 1
+description: Rocket.Chat REST, DDP, broker, MongoDB and cron APIs; REST router, service and model registry rules
+
+detectors: [rocketchat-api, rocketchat-services, rocketchat-models]
+
+# Client and broker libraries: their own calls are no sites; the application
+# calls into them are.
+libraries:
+  - "main:packages/ddp-client/**"
+  - "main:packages/api-client/**"
+  - "main:packages/server-fetch/**"
+  - "main:packages/core-services/**"
+  - "main:ee/packages/network-broker/**"
+  - "main:apps/meteor/client/lib/SDKClient.ts"
+  - "main:apps/meteor/client/lib/sdk/**"
+
+# The livechat widget calls the typed client: Livechat.deleteVisitor() is a request.
+facades:
+  - { class: LivechatClientImpl, file: "main:packages/ddp-client/src/livechat/**" }
+
+valueSources:
+  - { callee: settings.get, kind: setting, arg: 0 }
+
+factories:
+  # export const Presence = proxify<IPresence>('presence'), in core-services and wherever proxify is imported from it
+  - id: service-proxy
+    callee: { name: proxify, file: "main:packages/core-services/**" }
+    values: { ns: { arg: 0 } }
+  - id: service-proxy-imported
+    callee: { module: "@rocket.chat/core-services", export: proxify }
+    values: { ns: { arg: 0 } }
+  # export const Users = proxify<IUsersModel>('IUsersModel')
+  - id: model-proxy
+    callee: { name: proxify, file: "main:packages/models/**" }
+    values: { model: { arg: 0 } }
+
+bindings:
+  # REST, served under /api
+  - id: use-endpoint
+    type: http
+    role: request
+    callee: { module: "@rocket.chat/ui-contexts", export: useEndpoint }
+    method: { arg: 0 }
+    address: { arg: 1 }
+    base: { value: /api }
+  - id: rest-upload
+    type: http
+    role: request
+    callee: { receiver: any, members: [rest, upload] }
+    method: { value: POST }
+    address: { arg: 0 }
+    base: { value: /api }
+  - id: rest-client
+    type: http
+    role: request
+    callee: { receiver: any, members: [rest, "get|post|put|delete"] }
+    method: { member: -1 }
+    address: { arg: 0 }
+    base: { value: /api }
+  - id: server-fetch
+    type: http
+    role: request
+    callee: { module: "@rocket.chat/server-fetch", export: serverFetch }
+    address: { arg: 0 }
+    method: [{ arg: 1, key: method }, { default: GET }]
+  # DDP: Meteor methods and streams over the websocket
+  - id: sdk-call
+    type: ddp
+    role: request
+    callee: { name: sdk, members: [call] }
+    address: { arg: 0 }
+  - id: sdk-stream
+    type: ddp
+    role: subscribe
+    callee: { name: sdk, members: [stream] }
+    address: { arg: 0 }
+  - id: use-method
+    type: ddp
+    role: request
+    callee: { module: "@rocket.chat/ui-contexts", export: useMethod }
+    address: { arg: 0 }
+  - id: use-stream
+    type: ddp
+    role: subscribe
+    callee: { module: "@rocket.chat/ui-contexts", export: useStream }
+    address: { arg: 0 }
+  # Moleculer broker: Presence.setStatus() is the action presence.setStatus
+  - id: service-call
+    type: broker
+    role: request
+    callee: { instance: "service-proxy|service-proxy-imported", members: ["\\w+"] }
+    address: { join: [{ factory: ns }, { value: "." }, { member: -1 }] }
+  - id: api-call
+    type: broker
+    role: request
+    callee: { module: "@rocket.chat/core-services", export: api, members: ["call|waitAndCall"] }
+    address: { arg: 0 }
+  # Events that leave the process; broadcastLocal never does.
+  - id: broadcast
+    type: broker
+    role: publish
+    callee: { module: "@rocket.chat/core-services", export: api, members: ["broadcast|emitToOne"] }
+    address: { arg: 0 }
+  - id: broadcast-to-services
+    type: broker
+    role: publish
+    callee: { module: "@rocket.chat/core-services", export: api, members: [broadcastToServices] }
+    address: { arg: 1 }
+  - id: on-event
+    type: broker
+    role: subscribe
+    callee: { receiver: any, members: [onEvent] }
+    address: { arg: 0 }
+  # MongoDB through the model proxies: Users.findOneById() reads the collection users
+  - id: model-call
+    type: db
+    role: access
+    callee: { instance: model-proxy, members: ["\\w+"] }
+    address: { lookup: rocketchat.collections, key: { factory: model } }
+  # Scheduled jobs
+  - id: cron-job
+    type: trigger
+    role: schedule
+    callee: { module: "@rocket.chat/cron", export: cronJobs, members: ["add|addAtTimestamp"] }
+    address: { arg: 0 }
