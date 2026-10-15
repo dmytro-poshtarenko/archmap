@@ -1,12 +1,46 @@
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
 import { z } from "zod";
 import type { LlmAnswer, LlmProvider, LlmRequest } from "../types.js";
+
+/** Posts JSON and returns the parsed JSON answer, whatever the HTTP status. */
+export type PostJson = (url: string, body: unknown) => Promise<unknown>;
 
 export interface OllamaOptions {
   url: string;
   seed: number;
   numCtx: "auto" | number;
   maxCtx: number;
-  fetch?: typeof fetch;
+  post?: PostJson;
+}
+
+/**
+ * JSON over node:http, with one long limit instead of fetch's five minutes
+ * until the headers: Ollama answers only when the whole answer is ready, and
+ * a long prompt on a local model takes longer than that.
+ */
+export function postJson(timeoutMs = 60 * 60 * 1000): PostJson {
+  return (url, body) =>
+    new Promise((resolve, reject) => {
+      const u = new URL(url);
+      const send = u.protocol === "https:" ? httpsRequest : httpRequest;
+      const payload = JSON.stringify(body);
+      const req = send(u, { method: "POST", headers: { "content-type": "application/json", "content-length": Buffer.byteLength(payload) } }, (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (c: Buffer) => chunks.push(c));
+        res.on("end", () => {
+          try {
+            resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+          } catch (error) {
+            reject(error);
+          }
+        });
+        res.on("error", reject);
+      });
+      req.setTimeout(timeoutMs, () => req.destroy(new Error(`no answer from ${u.host} in ${Math.round(timeoutMs / 60000)} min`)));
+      req.on("error", reject);
+      req.end(payload);
+    });
 }
 
 interface ChatResponse {
@@ -27,13 +61,13 @@ interface ChatResponse {
  */
 export class OllamaProvider implements LlmProvider {
   readonly id = "ollama" as const;
-  private readonly http: typeof fetch;
+  private readonly post: PostJson;
 
   constructor(
     readonly model: string,
     private readonly opts: OllamaOptions,
   ) {
-    this.http = opts.fetch ?? fetch;
+    this.post = opts.post ?? postJson();
   }
 
   async complete<T>(req: LlmRequest<T>): Promise<LlmAnswer<T>> {
@@ -67,22 +101,17 @@ export class OllamaProvider implements LlmProvider {
   }
 
   private async chat(req: LlmRequest, numCtx: number): Promise<ChatResponse> {
-    const res = await this.http(`${this.opts.url}/api/chat`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        model: this.model,
-        stream: false,
-        think: false,
-        format: z.toJSONSchema(req.schema),
-        options: { temperature: 0, seed: this.opts.seed, num_ctx: numCtx, num_predict: req.maxTokens },
-        messages: [
-          { role: "system", content: req.system },
-          { role: "user", content: req.user },
-        ],
-      }),
-    });
-    return (await res.json()) as ChatResponse;
+    return (await this.post(`${this.opts.url}/api/chat`, {
+      model: this.model,
+      stream: false,
+      think: false,
+      format: z.toJSONSchema(req.schema),
+      options: { temperature: 0, seed: this.opts.seed, num_ctx: numCtx, num_predict: req.maxTokens },
+      messages: [
+        { role: "system", content: req.system },
+        { role: "user", content: req.user },
+      ],
+    })) as ChatResponse;
   }
 
   private answer<T>(req: LlmRequest<T>, t0: number, raw: string, model: string | null, stop: string, tokens: { input: number; output: number }): LlmAnswer<T> {

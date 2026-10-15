@@ -106,16 +106,16 @@ describe("the answer cache", () => {
 describe("the Ollama provider", () => {
   it("never cuts the input: a refused prompt is sent again with a window that fits", async () => {
     const windows: number[] = [];
-    const fake = (async (_url: string, init: { body: string }) => {
-      const body = JSON.parse(init.body) as { options: { num_ctx: number; temperature: number; seed: number } };
+    const fake = async (_url: string, payload: unknown) => {
+      const body = payload as { options: { num_ctx: number; temperature: number; seed: number } };
       windows.push(body.options.num_ctx);
       expect(body.options).toMatchObject({ temperature: 0, seed: 42 });
       if (body.options.num_ctx < 13932 + 100) {
-        return { json: async () => ({ error: { type: "exceed_context_size_error", message: "too long", n_prompt_tokens: 13932, n_ctx: body.options.num_ctx } }) };
+        return { error: { type: "exceed_context_size_error", message: "too long", n_prompt_tokens: 13932, n_ctx: body.options.num_ctx } };
       }
-      return { json: async () => ({ model: "qwen", message: { content: '{"value":"ok"}' }, done_reason: "stop", prompt_eval_count: 13932, eval_count: 4 }) };
-    }) as unknown as typeof fetch;
-    const p = new OllamaProvider("qwen", { url: "http://x", seed: 42, numCtx: 4096, maxCtx: 131072, fetch: fake });
+      return { model: "qwen", message: { content: '{"value":"ok"}' }, done_reason: "stop", prompt_eval_count: 13932, eval_count: 4 };
+    };
+    const p = new OllamaProvider("qwen", { url: "http://x", seed: 42, numCtx: 4096, maxCtx: 131072, post: fake });
     const a = await p.complete(request("long"));
     expect(a.parsed).toEqual({ value: "ok" });
     expect(a.usage.input).toBe(13932);
@@ -123,11 +123,11 @@ describe("the Ollama provider", () => {
   });
 
   it("reports a cut answer and an input beyond the largest window", async () => {
-    const cut = (async () => ({ json: async () => ({ model: "qwen", message: { content: '{"val' }, done_reason: "length", prompt_eval_count: 10, eval_count: 100 }) })) as unknown as typeof fetch;
-    const a = await new OllamaProvider("qwen", { url: "http://x", seed: 1, numCtx: "auto", maxCtx: 8192, fetch: cut }).complete(request("q"));
+    const cut = async () => ({ model: "qwen", message: { content: '{"val' }, done_reason: "length", prompt_eval_count: 10, eval_count: 100 });
+    const a = await new OllamaProvider("qwen", { url: "http://x", seed: 1, numCtx: "auto", maxCtx: 8192, post: cut }).complete(request("q"));
     expect(a).toMatchObject({ parsed: null, stopReason: "max_tokens" });
-    const huge = (async () => ({ json: async () => ({ error: { type: "exceed_context_size_error", n_prompt_tokens: 50000, n_ctx: 8192 } }) })) as unknown as typeof fetch;
-    const b = await new OllamaProvider("qwen", { url: "http://x", seed: 1, numCtx: 8192, maxCtx: 8192, fetch: huge }).complete(request("q"));
+    const huge = async () => ({ error: { type: "exceed_context_size_error", n_prompt_tokens: 50000, n_ctx: 8192 } });
+    const b = await new OllamaProvider("qwen", { url: "http://x", seed: 1, numCtx: 8192, maxCtx: 8192, post: huge }).complete(request("q"));
     expect(b).toMatchObject({ parsed: null, stopReason: "truncated-input" });
   });
 });
