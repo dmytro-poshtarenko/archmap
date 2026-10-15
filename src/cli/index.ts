@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { Command } from "commander";
+import { registerExtract } from "./commands/extract.js";
 import { registerFetch } from "./commands/fetch.js";
 import { registerInventory } from "./commands/inventory.js";
 import { registerLabel } from "./commands/label.js";
@@ -18,6 +19,7 @@ registerFetch(program);
 registerInventory(program);
 registerLicenceCheck(program);
 registerLabel(program);
+registerExtract(program);
 
 try {
   await program.parseAsync(process.argv);

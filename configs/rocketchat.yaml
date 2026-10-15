@@ -65,6 +65,7 @@ exclude:
   - "**/.claude/**"
   - "**/*.config.{js,mjs,cjs,ts}"
   - "scripts/**"
+  - "apps/meteor/reporters/**"
   - "**/*release-action/**"
   - "**/release-changelog/**"
 

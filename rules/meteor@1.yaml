@@ -1,0 +1,27 @@
+# Meteor clients over DDP. Meteor.methods and Meteor.publish declarations
+# deliberately have no rules: extracting them is left to the language model.
+id: meteor
+version: 1
+description: Meteor method calls and subscriptions over DDP
+
+bindings:
+  - id: call
+    type: ddp
+    role: request
+    callee: { module: meteor/meteor, export: Meteor, members: ["call|callAsync|apply|applyAsync"] }
+    address: { arg: 0 }
+  - id: call-global
+    type: ddp
+    role: request
+    callee: { global: Meteor, members: ["call|callAsync|apply|applyAsync"] }
+    address: { arg: 0 }
+  - id: subscribe
+    type: ddp
+    role: subscribe
+    callee: { module: meteor/meteor, export: Meteor, members: [subscribe] }
+    address: { arg: 0 }
+  - id: subscribe-global
+    type: ddp
+    role: subscribe
+    callee: { global: Meteor, members: [subscribe] }
+    address: { arg: 0 }

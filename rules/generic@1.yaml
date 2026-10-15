@@ -1,0 +1,75 @@
+# Extraction rules for common Node.js and browser clients and for Express.
+# Bindings are data: each names a callee and where its target is read from.
+id: generic
+version: 1
+description: fetch, axios, BullMQ and amqplib clients; Express route declarations
+
+detectors: [express]
+
+factories:
+  - id: axios-create
+    callee: { module: axios, export: default, members: [create] }
+    values: { base: { arg: 0, key: baseURL } }
+  - id: bullmq-queue
+    callee: { module: bullmq, export: Queue, new: true }
+    values: { name: { arg: 0 } }
+
+bindings:
+  # HTTP
+  - id: fetch
+    type: http
+    role: request
+    callee: { global: fetch }
+    address: { arg: 0 }
+    method: [{ arg: 1, key: method }, { default: GET }]
+  - id: node-fetch
+    type: http
+    role: request
+    callee: { module: node-fetch, export: default }
+    address: { arg: 0 }
+    method: [{ arg: 1, key: method }, { default: GET }]
+  - id: axios-verb
+    type: http
+    role: request
+    callee: { module: axios, export: default, members: ["get|post|put|patch|delete|head|options"] }
+    address: { arg: 0 }
+    method: { member: -1 }
+  - id: axios-request
+    type: http
+    role: request
+    callee: { module: axios, export: default }
+    address: [{ arg: 0, key: url }, { arg: 0 }]
+    method: [{ arg: 0, key: method }, { arg: 1, key: method }, { default: GET }]
+  - id: axios-instance
+    type: http
+    role: request
+    callee: { instance: axios-create, members: ["get|post|put|patch|delete|head|options"] }
+    base: { factory: base }
+    address: { arg: 0 }
+    method: { member: -1 }
+  # Queues
+  - id: bullmq-add
+    type: broker
+    role: publish
+    callee: { instance: bullmq-queue, members: ["add|addBulk"] }
+    address: { factory: name }
+  - id: bullmq-worker
+    type: broker
+    role: subscribe
+    callee: { module: bullmq, export: Worker, new: true }
+    address: { arg: 0 }
+  - id: amqp-send
+    type: broker
+    role: publish
+    callee: { receiver: any, members: [sendToQueue], fileImports: amqplib }
+    address: { arg: 0 }
+  - id: amqp-publish
+    type: broker
+    role: publish
+    callee: { receiver: any, members: [publish], fileImports: amqplib }
+    address: { arg: 0 }
+  - id: amqp-consume
+    type: broker
+    role: subscribe
+    callee: { receiver: any, members: [consume], fileImports: amqplib }
+    address: { arg: 0 }

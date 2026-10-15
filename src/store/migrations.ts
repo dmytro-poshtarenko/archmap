@@ -50,4 +50,47 @@ export const migrations: Migration[] = [
       );
     `,
   },
+  {
+    version: 2,
+    name: "extraction",
+    sql: `
+      -- Computed once per snapshot and rules; every method variant reads the same rows.
+      CREATE TABLE call_site (
+        id          TEXT PRIMARY KEY,         -- '<repo>:<path>:<line>:<column>'
+        repo        TEXT NOT NULL,
+        path        TEXT NOT NULL,
+        line        INTEGER NOT NULL,
+        end_line    INTEGER NOT NULL,
+        col         INTEGER NOT NULL,
+        type        TEXT NOT NULL CHECK (type IN ('http', 'ddp', 'broker', 'db', 'trigger')),
+        role        TEXT NOT NULL CHECK (role IN ('request', 'publish', 'subscribe', 'access', 'schedule')),
+        detector    TEXT NOT NULL,
+        method      TEXT,                     -- JSON AbstractValue, HTTP only
+        address     TEXT NOT NULL,            -- JSON AbstractValue
+        display     TEXT NOT NULL,            -- readable address, e.g. {env:ORDERS_URL}/orders
+        components  TEXT NOT NULL,            -- JSON array of the components that run this code
+        lifted_from TEXT,                     -- '<repo>:<path>:<line>:<column>' of the call inside the wrapper
+        FOREIGN KEY (repo, path) REFERENCES file(repo_id, path) ON DELETE CASCADE
+      );
+      CREATE INDEX call_site_file ON call_site(repo, path);
+      CREATE INDEX call_site_type ON call_site(type);
+
+      CREATE TABLE route (
+        id         TEXT PRIMARY KEY,          -- '<repo>:<path>:<line>:<column>', '#n' for several routes of one declaration
+        kind       TEXT NOT NULL CHECK (kind IN ('http', 'ddp-method', 'broker-action', 'event', 'collection', 'timer')),
+        repo       TEXT NOT NULL,
+        path       TEXT NOT NULL,
+        line       INTEGER NOT NULL,
+        col        INTEGER NOT NULL,
+        method     TEXT,
+        template   TEXT NOT NULL,
+        detector   TEXT NOT NULL,
+        source     TEXT NOT NULL CHECK (source IN ('rules', 'llm', 'catalog')),
+        components TEXT NOT NULL,
+        extra      TEXT,
+        FOREIGN KEY (repo, path) REFERENCES file(repo_id, path) ON DELETE CASCADE
+      );
+      CREATE INDEX route_template ON route(kind, template);
+    `,
+  },
 ];
