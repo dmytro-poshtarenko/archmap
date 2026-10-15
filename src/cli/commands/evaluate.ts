@@ -12,7 +12,9 @@ export function registerEvaluate(program: Command): void {
     .requiredOption("--run <id>", "run to evaluate, e.g. no-llm")
     .option("--split <split>", "dev, test or heldout (test and heldout only after the freeze)", "dev")
     .option("--annotator <id>", "whose labels are the reference", "A")
-    .action((opts: { run: string; split: string; annotator: string }, cmd: Command) => {
+    .option("--compare <how>", "key (the full target key) or path (paths and names only, the part ignored: for the baseline)", "key")
+    .action((opts: { run: string; split: string; annotator: string; compare: string }, cmd: Command) => {
+      if (opts.compare !== "key" && opts.compare !== "path") throw new Error("--compare must be key or path");
       const ctx = createContext(cmd.optsWithGlobals<GlobalOptions>());
       if (!SPLITS.includes(opts.split as Split)) throw new Error(`unknown split ${opts.split}`);
       const split = opts.split as Split;
@@ -21,7 +23,7 @@ export function registerEvaluate(program: Command): void {
       const candidates = openCandidates(ctx.layout, name);
       const method = ctx.openDb();
       try {
-        const e = evaluateRun({ method, candidates, labels, run: opts.run, split, annotator: opts.annotator });
+        const e = evaluateRun({ method, candidates, labels, run: opts.run, split, annotator: opts.annotator, compare: opts.compare as "key" | "path" });
         let toolSha: string | null = null;
         try {
           toolSha = git(["rev-parse", "HEAD"], toolRoot).trim();

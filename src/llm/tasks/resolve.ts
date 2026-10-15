@@ -204,16 +204,19 @@ export function normaliseFree(
 
 /**
  * Every target key the method knows under a variant, by canonical form:
- * declared routes in their parts, events and collections the code names,
- * timers in the parts registering them.
+ * declared routes in their parts; with the rules, also the events and
+ * collections the code names and the timers in the parts registering them.
  */
 export function methodCatalog(resolver: Resolver, sites: CallSite[], sources: Sources): Map<string, string> {
   const keys: string[] = [];
   for (const r of resolver.routesOf("http", sources)) for (const c of r.components) keys.push(`http:${r.method?.toUpperCase() ?? "*"}:${r.template}@${c}`);
   for (const r of resolver.routesOf("ddp-method", sources)) for (const c of r.components) keys.push(`ddp:${r.method === "sub" ? "sub" : "call"}:${r.template}@${c}`);
   for (const r of resolver.routesOf("broker-action", sources)) for (const c of r.components) keys.push(`action:-:${r.template}@${c}`);
-  for (const n of resolver.knownEvents()) keys.push(`event:-:${n}@*`);
-  for (const n of resolver.knownNames("db")) for (const d of resolver.databases()) keys.push(`coll:-:${n}@${d}`);
-  for (const s of sites.filter((x) => x.type === "trigger")) for (const n of namesOf(s.address) ?? []) for (const c of s.components) keys.push(`timer:-:${n}@${c}`);
+  // events, collections and jobs are known from the rules' reading of the call sites
+  if (sources.rules) {
+    for (const n of resolver.knownEvents()) keys.push(`event:-:${n}@*`);
+    for (const n of resolver.knownNames("db")) for (const d of resolver.databases()) keys.push(`coll:-:${n}@${d}`);
+    for (const s of sites.filter((x) => x.type === "trigger")) for (const n of namesOf(s.address) ?? []) for (const c of s.components) keys.push(`timer:-:${n}@${c}`);
+  }
   return new Map(keys.map((k) => [canonicalTargetKey(k), k]));
 }

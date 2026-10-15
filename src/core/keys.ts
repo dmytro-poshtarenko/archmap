@@ -50,3 +50,38 @@ export function canonicalTargetKey(key: string): string {
   if (!key.startsWith("http:")) return key;
   return key.replace(/\/:[A-Za-z_][\w]*/g, "/:p");
 }
+
+/** A route path without host, query and router prefixes, parameters by position: `/api/v1/rooms/:id` → `rooms/:p`. */
+export function barePath(path: string): string {
+  return path
+    .replace(/^[a-z]+:\/\/[^/]+/i, "")
+    .replace(/[?#].*$/, "")
+    .replace(/^\/+/, "")
+    .replace(/^(?:api\/)?(?:v\d+\/|experimental\/)?/, "")
+    .replace(/\/:[A-Za-z_]\w*/g, "/:p")
+    .replace(/\/\$\{[^}]*\}/g, "/:p")
+    .replace(/\/+$/, "");
+}
+
+/**
+ * Whether two target keys name the same target when only paths and names
+ * count: the part of the system is ignored, HTTP paths lose their router
+ * prefixes, and a method of `*` matches any. Used to compare with tools
+ * that cannot name the part, such as the baseline.
+ */
+export function samePath(a: string, b: string): boolean {
+  const pa = parseTargetKey(a);
+  const pb = parseTargetKey(b);
+  const split = (k: string) => {
+    const kind = k.slice(0, k.indexOf(":"));
+    const rest = k.slice(kind.length + 1);
+    const method = rest.slice(0, rest.indexOf(":"));
+    const name = rest.slice(method.length + 1, rest.lastIndexOf("@"));
+    return { kind, method, name };
+  };
+  const x = "error" in pa ? split(a) : pa;
+  const y = "error" in pb ? split(b) : pb;
+  if (x.kind !== y.kind) return false;
+  if (x.kind === "http") return (x.method === y.method || x.method === "*" || y.method === "*") && barePath(x.name) === barePath(y.name);
+  return x.method === y.method && x.name === y.name;
+}

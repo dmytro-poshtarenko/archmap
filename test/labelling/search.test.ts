@@ -96,5 +96,10 @@ describe("candidates", () => {
     expect(storeCandidates(db, found, { packsHash: "p", inventoryHash: "i" }).changed).toBe(false);
     db.prepare("INSERT INTO sample(candidate, pool, rank, double) VALUES (?, 'main', 1, 0)").run(found[0]?.id);
     expect(() => storeCandidates(db, [], { packsHash: "p", inventoryHash: "i" })).toThrow(/sample has already been drawn/);
+    // after the freeze the held-out repository joins: the main candidates and the sample stay as they are
+    const heldout = [...found, { ...(found[0] as (typeof found)[number]), id: "mobile:m.ts:1", repo: "mobile", path: "m.ts", split: "heldout" as const }];
+    expect(storeCandidates(db, heldout, { packsHash: "p", inventoryHash: "i2" }).changed).toBe(true);
+    expect(db.prepare("SELECT id FROM candidate ORDER BY id").pluck().all()).toEqual([found[0]?.id, "mobile:m.ts:1"]);
+    expect(db.prepare("SELECT count(*) FROM sample").pluck().get()).toBe(1);
   });
 });

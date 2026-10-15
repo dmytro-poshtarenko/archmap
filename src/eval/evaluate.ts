@@ -1,4 +1,4 @@
-import { canonicalTargetKey } from "../core/keys.js";
+import { canonicalTargetKey, samePath } from "../core/keys.js";
 import type { CallSite } from "../core/types.js";
 import type { Label } from "../labelling/labels.js";
 import type { StoredLink } from "../match/run.js";
@@ -45,7 +45,14 @@ export interface SampleFrame {
  * counts once; lines labelled `duplicate` stand for a call labelled above
  * and are no units of their own.
  */
-export function alignUnits(frame: SampleFrame, split: string, labels: Label[], sites: CallSite[], links: Map<string, StoredLink>): { units: Unit[]; pending: number } {
+export function alignUnits(
+  frame: SampleFrame,
+  split: string,
+  labels: Label[],
+  sites: CallSite[],
+  links: Map<string, StoredLink>,
+  compare: "key" | "path" = "key",
+): { units: Unit[]; pending: number } {
   const weights = weightsOf(frame, split);
   const byFile = new Map<string, CallSite[]>();
   for (const s of sites) byFile.set(`${s.repo}:${s.path}`, [...(byFile.get(`${s.repo}:${s.path}`) ?? []), s]);
@@ -76,7 +83,8 @@ export function alignUnits(frame: SampleFrame, split: string, labels: Label[], s
     const inCStar = l.isSite && l.target !== null && l.target !== "NONE";
     const predicted = link?.status === "linked";
     const answers = predicted && link ? (link.alternatives.length > 0 ? link.alternatives : [link.target as string]) : [];
-    const correct = inCStar && answers.some((a) => canonicalTargetKey(a) === canonicalTargetKey(l.target as string));
+    const same = (a: string) => (compare === "path" ? samePath(a, l.target as string) : canonicalTargetKey(a) === canonicalTargetKey(l.target as string));
+    const correct = inCStar && answers.some(same);
     units.push({
       unit: id,
       repo: l.repo,

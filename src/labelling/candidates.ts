@@ -94,13 +94,20 @@ export interface StoredSearch {
   count: number;
 }
 
+function populationHash(candidates: Candidate[]): string {
+  return sha256Hex(candidates.map((c) => `${c.id}\t${c.stratum}\t${c.patterns.join(",")}\t${c.textSha}`).join("\n"));
+}
+
 /**
  * Replaces the stored candidate population. Refused once a sample exists,
  * unless the population is unchanged, because the sample is drawn from it.
+ * The one change allowed after a sample is the held-out repository joining
+ * after the freeze: when every other candidate is the same, only the
+ * held-out candidates are replaced and the main sample stays valid.
  */
 export function storeCandidates(db: Db, candidates: Candidate[], meta: Omit<StoredSearch, "count">): { changed: boolean } {
   const previous = getMeta(db, "candidates.hash");
-  const hash = sha256Hex(candidates.map((c) => `${c.id}\t${c.stratum}\t${c.patterns.join(",")}\t${c.textSha}`).join("\n"));
+  const hash = populationHash(candidates);
   if (previous === hash) {
     // Same population; only the component mapping of the inventory may have changed.
     const update = db.prepare("UPDATE candidate SET component = ? WHERE id = ?");
@@ -110,14 +117,25 @@ export function storeCandidates(db: Db, candidates: Candidate[], meta: Omit<Stor
     })();
     return { changed: false };
   }
-  const sampled = db.prepare("SELECT count(*) FROM sample").pluck().get() as number;
-  if (sampled > 0) {
-    throw new Error("a sample has already been drawn from the candidates; changing them needs 'label sample --force' afterwards");
-  }
   const insert = db.prepare(
     `INSERT INTO candidate(id, repo, path, line, split, component, stratum, patterns, text_sha)
      VALUES (@id, @repo, @path, @line, @split, @component, @stratum, @patterns, @textSha)`,
   );
+  const sampled = db.prepare("SELECT count(*) FROM sample").pluck().get() as number;
+  if (sampled > 0) {
+    const main = (list: Candidate[]) => populationHash(list.filter((c) => c.split !== "heldout"));
+    if (main(loadCandidates(db)) !== main(candidates)) {
+      throw new Error("a sample has already been drawn from the candidates; changing them needs 'label sample --force' afterwards");
+    }
+    db.transaction(() => {
+      db.exec("DELETE FROM candidate WHERE split = 'heldout'");
+      for (const c of candidates.filter((x) => x.split === "heldout")) insert.run({ ...c, patterns: JSON.stringify(c.patterns) });
+      setMeta(db, "candidates.hash", hash);
+      setMeta(db, "candidates.inventoryHash", meta.inventoryHash);
+      setMeta(db, "candidates.count", String(candidates.length));
+    })();
+    return { changed: true };
+  }
   db.transaction(() => {
     db.exec("DELETE FROM candidate");
     for (const c of candidates) insert.run({ ...c, patterns: JSON.stringify(c.patterns) });

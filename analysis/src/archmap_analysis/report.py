@@ -222,6 +222,10 @@ def main(argv: list[str] | None = None) -> int:
             summary["h2"] = hypothesis2(boot, modes["no-llm"], modes["select"], modes["free"]).__dict__
     if args.h3:
         summary["h3"] = h3_report([Path(p) for p in args.h3], out)
+        # the decision the freeze checks the config against
+        decision = Path(args.data) / "out" / args.target / "h3" / "decision.json"
+        decision.parent.mkdir(parents=True, exist_ok=True)
+        decision.write_text(json.dumps({"verdict": summary["h3"]["verdict"], "splitFilesFor": summary["h3"]["split_files_for"], "files": args.h3}, indent=2, default=float) + "\n")
     if not names and not args.h3:
         raise SystemExit("nothing to report: give --runs and/or --h3")
 

@@ -2,6 +2,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Command } from "commander";
 import { programOf } from "../../extract/run.js";
+import { collectCbm, writeCbmRun } from "../../experiments/cbm.js";
 import { generateH3, h3Dir, runH3, runProbe, toCsv } from "../../experiments/h3run.js";
 import { LlmClient } from "../../llm/client.js";
 import { type ModelChoice, providerOf } from "../../llm/providers/index.js";
@@ -24,6 +25,26 @@ export function registerExperiments(program: Command): void {
         const routes = m.controllers.reduce((s, c) => s + c.routes.length, 0);
         console.log(`${m.controllers.length} controllers (${routes} routes), ${m.variants.length} variants checked by the route detector, in ${out}`);
         for (const c of m.controllers) console.log(`  ${c.id} ${c.source} → ${c.path}: ${c.routes.map((r) => `${r.method} ${r.original}→${r.renamed}`).join(", ")}`);
+      } finally {
+        db.close();
+      }
+    });
+
+  exp
+    .command("baseline-cbm")
+    .description("baseline: index the target with codebase-memory-mcp over MCP and store its HTTP calls and event channels as run cbm")
+    .option("--binary <path>", "codebase-memory-mcp executable", "codebase-memory-mcp")
+    .action(async (opts: { binary: string }, cmd: Command) => {
+      const ctx = createContext(cmd.optsWithGlobals<GlobalOptions>());
+      const { config } = ctx.loaded;
+      const { version, predictions } = await collectCbm(config, ctx.layout, ctx.loaded.path, opts.binary);
+      const db = ctx.openDb();
+      try {
+        const r = writeCbmRun(db, version, predictions, reader(config, ctx.layout, ctx.loaded.path), ctx.loaded.hash);
+        const byEdge = new Map<string, number>();
+        for (const p of predictions) byEdge.set(p.edge, (byEdge.get(p.edge) ?? 0) + 1);
+        console.log(`codebase-memory-mcp ${version}: ${predictions.length} edges (${[...byEdge].map(([k, v]) => `${k} ${v}`).join(", ")})`);
+        console.log(`run ${r.run}: answers placed on ${r.places} lines that quote their path or channel`);
       } finally {
         db.close();
       }

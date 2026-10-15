@@ -158,3 +158,35 @@ function open(file: string, migrations: Migration[]): Db {
   runMigrations(db, migrations);
   return db;
 }
+
+/**
+ * Counts of the reference cases per sampling stratum of a split, and nothing
+ * else: no site, no target. Hypothesis 1 predicts each component's
+ * contribution from these shares, computed from the labels before the test
+ * run and sent with the freeze manifest; this is the one read of the test
+ * labels the protocol allows before the freeze.
+ */
+export function caseCounts(layout: DataLayout, target: string, split: Split, annotator: string): Array<{ stratum: string; caseNo: number | null; inCStar: boolean; n: number }> {
+  const dir = labelsDir(layout, target);
+  const labels = new Database(join(dir, `${split}.sqlite`), { readonly: true, fileMustExist: true });
+  const candidates = new Database(join(dir, "candidates.sqlite"), { readonly: true, fileMustExist: true });
+  try {
+    const stratum = new Map((candidates.prepare("SELECT id, stratum FROM candidate").all() as Array<{ id: string; stratum: string }>).map((r) => [r.id, r.stratum]));
+    const rows = labels
+      .prepare("SELECT item, is_site, target, case_no FROM label WHERE annotator = ? AND origin = 'sample'")
+      .all(annotator) as Array<{ item: string; is_site: number; target: string | null; case_no: number | null }>;
+    const counts = new Map<string, { stratum: string; caseNo: number | null; inCStar: boolean; n: number }>();
+    for (const r of rows) {
+      const s = stratum.get(r.item) ?? "unknown";
+      const inCStar = r.is_site === 1 && r.target !== null && r.target !== "NONE";
+      const key = `${s}|${r.case_no}|${inCStar}`;
+      const e = counts.get(key) ?? { stratum: s, caseNo: r.case_no, inCStar, n: 0 };
+      e.n++;
+      counts.set(key, e);
+    }
+    return [...counts.values()];
+  } finally {
+    labels.close();
+    candidates.close();
+  }
+}
