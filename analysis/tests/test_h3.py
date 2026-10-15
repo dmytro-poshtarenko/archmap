@@ -29,3 +29,26 @@ def test_gee_finds_the_fall_only_where_it_exists():
     assert decision(slopes.reset_index()) == PARTIAL
     rho = spearman_by_model(synthetic()).set_index("model")
     assert rho.loc["a", "rho"] < 0
+
+
+def test_report_runs_hypothesis_3_alone_and_keeps_the_series_apart(tmp_path):
+    import json
+
+    from archmap_analysis.report import main
+
+    df = synthetic()
+    df["series"] = "length"
+    pos = df[df["tokens"] == 4000].copy()
+    pos["series"] = "position"
+    pos["level"] = ["start", "middle", "end"] * (len(pos) // 3) + ["start"] * (len(pos) % 3)
+    files = []
+    for model in ("a", "b"):
+        f = tmp_path / f"h3-{model}.csv"
+        pd.concat([df[df["model"] == model], pos[pos["model"] == model]]).to_csv(f, index=False)
+        files.append(str(f))
+    out = tmp_path / "out"
+    assert main(["--target", "toy", "--h3", *files, "--out", str(out)]) == 0
+    summary = json.loads((out / "summary.json").read_text())
+    assert summary["h3"]["verdict"] == PARTIAL
+    assert summary["h3"]["split_files_for"] == {"a": True, "b": False}
+    assert (out / "h3_position.csv").exists() and (out / "h3_length.svg").exists()

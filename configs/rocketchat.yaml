@@ -97,11 +97,12 @@ llm:
       - '\.methods\s*(?:<[^>(]*>)?\(\s*\{'
       - '\.publish\s*(?:<[^>(]*>)?\(\s*[''"`]'
       - 'new\s+(?:this\.)?\w*Streamer\s*(?:<[^>(]*>)?\('
-      - '\bAPI\.v1\.(?:addRoute|get|post|put|delete)\('
+      - '\bAPI\s*\.\s*v1\s*\.\s*(?:addRoute|get|post|put|delete)\s*\('
       - 'WebApp\.(?:connectHandlers|rawConnectHandlers)\.use\('
       - '\.(?:get|post|put|patch|delete|all|use)\(\s*[''"`]/'
   resolve: { mode: select, candidates: 5, contextLines: 40 }
-  chunking: { enabled: false, maxTokens: 6000 }
+  # decided by hypothesis 3 before the freeze, per model
+  chunking: { local: false, cloud: false, maxTokens: 6000 }
   stability: { share: 0.1, repeats: 3 }
   budgetUsd: 60
 

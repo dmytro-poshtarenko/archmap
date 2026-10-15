@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { registerCheckRoutes } from "./commands/checkRoutes.js";
 import { registerClassify } from "./commands/classify.js";
 import { registerEvaluate } from "./commands/evaluate.js";
+import { registerExperiments } from "./commands/exp.js";
 import { registerExtract } from "./commands/extract.js";
 import { registerExtractInfra } from "./commands/extractInfra.js";
 import { registerFetch } from "./commands/fetch.js";
@@ -32,6 +33,7 @@ registerClassify(program);
 registerMatch(program);
 registerEvaluate(program);
 registerLlm(program);
+registerExperiments(program);
 
 try {
   await program.parseAsync(process.argv);

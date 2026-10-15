@@ -106,8 +106,14 @@ export const LlmConfig = z.strictObject({
       contextLines: z.number().int().min(5).max(200).default(40),
     })
     .prefault({}),
-  /** Long files are split into parts on top-level statements; hypothesis 3 decides. */
-  chunking: z.strictObject({ enabled: z.boolean().default(false), maxTokens: z.number().int().positive().default(6000) }).prefault({}),
+  /**
+   * Long files are split into parts on top-level statements, for each model
+   * separately: hypothesis 3 decides, and splitting is switched on only for
+   * a model whose extraction falls with the length of the file.
+   */
+  chunking: z
+    .strictObject({ local: z.boolean().default(false), cloud: z.boolean().default(false), maxTokens: z.number().int().positive().default(6000) })
+    .prefault({}),
   /** A share of the requests is repeated to measure how stable the answers are. */
   stability: z.strictObject({ share: z.number().min(0).max(1).default(0.1), repeats: z.number().int().min(1).default(3) }).prefault({}),
   budgetUsd: z.number().positive().default(60),

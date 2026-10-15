@@ -1,6 +1,5 @@
 import { ts } from "ts-morph";
 import { z } from "zod";
-import type { LlmConfig } from "../../config/schema.js";
 import type { RouteDecl } from "../../core/types.js";
 import { loadTemplate, render, TEMPLATES } from "../prompts.js";
 import type { LlmAnswer, LlmRequest } from "../types.js";
@@ -61,7 +60,7 @@ export function numbered(lines: string[], first: number): string {
  * object literal (`Meteor.methods({ … })`) is split between its properties,
  * each part repeating the opening line of the call.
  */
-export function chunksOf(file: SourceFile, chunking: LlmConfig["chunking"]): Chunk[] {
+export function chunksOf(file: SourceFile, chunking: { enabled: boolean; maxTokens: number }): Chunk[] {
   const lines = file.text.split("\n");
   const whole: Chunk = { file, index: 0, count: 1, firstLine: 1, lastLine: lines.length, code: numbered(lines, 1) };
   if (!chunking.enabled || tokensOf(file.text) <= chunking.maxTokens) return [whole];

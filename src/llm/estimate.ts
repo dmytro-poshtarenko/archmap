@@ -33,7 +33,7 @@ export async function estimateCost(db: Db, config: TargetConfig, read: (repo: st
   const files: SourceFile[] = code.map((f) => ({ ...f, text: read(f.repo, f.path), components: usage.get(`${f.repo}:${f.path}`) ?? [] }));
   const clients = new Set(config.components.filter((c) => c.kind === "client").map((c) => c.id));
   const extract = filesForExtraction(files, config.llm.extract.hints, clients)
-    .flatMap((f) => chunksOf(f, config.llm.chunking))
+    .flatMap((f) => chunksOf(f, { enabled: config.llm.chunking.cloud, maxTokens: config.llm.chunking.maxTokens }))
     .map((c) => extractionRequest(c, config.name, config.llm.cloud.effort.extract));
 
   const base = (db.prepare("SELECT id, variant FROM run WHERE id IN ('full', 'no-llm') ORDER BY id = 'full' DESC").get() as { id: string; variant: string } | undefined) ?? null;

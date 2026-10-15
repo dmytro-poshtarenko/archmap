@@ -75,7 +75,8 @@ export async function runLlmRoutes(db: Db, config: TargetConfig, read: (repo: st
   const files: SourceFile[] = code.map((f) => ({ ...f, text: read(f.repo, f.path), components: usage.get(`${f.repo}:${f.path}`) ?? [] }));
   const clients = new Set(config.components.filter((c) => c.kind === "client").map((c) => c.id));
   const chosenFiles = filesForExtraction(files, config.llm.extract.hints, clients).filter((f) => opts.files?.(f) ?? true);
-  const chunks = chosenFiles.flatMap((f) => chunksOf(f, config.llm.chunking));
+  const chunking = { enabled: client.tag === "cloud" ? config.llm.chunking.cloud : config.llm.chunking.local, maxTokens: config.llm.chunking.maxTokens };
+  const chunks = chosenFiles.flatMap((f) => chunksOf(f, chunking));
   const effort = config.llm.cloud.effort.extract;
   const requests = chunks.map((c) => extractionRequest(c, config.name, effort));
   const repeats = repeatsOf(requests, config.llm.stability.share, config.llm.stability.repeats, (r) => client.keyOf(r));

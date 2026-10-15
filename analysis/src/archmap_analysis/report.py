@@ -136,10 +136,23 @@ def figure_rates(runs: dict[str, pd.DataFrame], boot, out: Path) -> None:
     save_figure(fig, out, "rates")
 
 
-def h3_report(path: Path, out: Path) -> dict:
-    df = pd.read_csv(path)
+def h3_report(paths: list[Path], out: Path) -> dict:
+    """
+    Hypothesis 3 from the per-model result files: the GEE and Spearman on the
+    length series, recall by place of the routes for the position series
+    (the two series are analysed separately), and the chunking decision.
+    """
+    all_rows = pd.concat([pd.read_csv(p) for p in paths], ignore_index=True)
+    df = all_rows[all_rows["series"] == "length"] if "series" in all_rows.columns else all_rows
     slopes = gee_length(df)
     rho = spearman_by_model(df)
+    if "series" in all_rows.columns:
+        pos = all_rows[all_rows["series"] == "position"]
+        if not pos.empty:
+            table = pos.groupby(["model", "level"]).agg(n=("found", "count"), found=("found", "sum")).reset_index()
+            table["recall %"] = (100 * table["found"] / table["n"]).round(1)
+            table["Wilson 95%"] = [ci(wilson(int(k), int(n))) for k, n in zip(table["found"], table["n"], strict=True)]
+            write_table(table, out, "h3_position")
     write_table(slopes.round(4), out, "h3_gee")
     write_table(rho.round(4), out, "h3_spearman")
     fig, ax = plt.subplots(figsize=(6, 3.5))
@@ -151,7 +164,8 @@ def h3_report(path: Path, out: Path) -> dict:
     ax.set_ylabel("Частка вилучених маршрутів, %")
     ax.legend(fontsize=8)
     save_figure(fig, out, "h3_length")
-    return {"verdict": h3_decision(slopes), "slopes": slopes.to_dict(orient="records")}
+    chunking = {str(r["model"]): bool(r["falls"]) for r in slopes.to_dict(orient="records")}
+    return {"verdict": h3_decision(slopes), "slopes": slopes.to_dict(orient="records"), "split_files_for": chunking}
 
 
 def parse_pairs(items: list[str] | None) -> dict[str, str]:
@@ -169,12 +183,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--data", default=str(Path(__file__).resolve().parents[4] / "data"), help="data workspace (default: magister-diplom/data)")
     ap.add_argument("--target", required=True)
     ap.add_argument("--split", default="dev")
-    ap.add_argument("--runs", nargs="+", required=True, help="evaluated runs; the first is the reference for McNemar")
+    ap.add_argument("--runs", nargs="*", default=[], help="evaluated runs; the first is the reference for McNemar")
     ap.add_argument("--full", help="hypotheses: the full method's run")
     ap.add_argument("--without", nargs="*", help="hypothesis 1: rules=<run> infra=<run> llm=<run>")
     ap.add_argument("--shares", help="hypothesis 1: JSON file with the predicted shares (default: from these labels)")
     ap.add_argument("--modes", nargs="*", help="hypothesis 2: no-llm=<run> select=<run> free=<run>")
-    ap.add_argument("--h3", help="hypothesis 3: CSV of the synthetic-file experiment")
+    ap.add_argument("--h3", nargs="+", help="hypothesis 3: result CSVs of the synthetic-file experiment, one per model")
     ap.add_argument("--replicates", type=int, default=DEFAULT_REPLICATES)
     ap.add_argument("--seed", type=int, default=11)
     ap.add_argument("--out", help="output directory (default: <data>/reports/<target>/<split>)")
@@ -182,35 +196,39 @@ def main(argv: list[str] | None = None) -> int:
 
     out = Path(args.out) if args.out else Path(args.data) / "reports" / args.target / args.split
     out.mkdir(parents=True, exist_ok=True)
-    runs = load_runs(args.data, args.target, args.split, list(dict.fromkeys(args.runs + [v for v in [args.full] if v] + list(parse_pairs(args.without).values()) + list(parse_pairs(args.modes).values()))))
-    wide = paired(runs)
-    names = list(runs)
-    boot = cluster_bootstrap(wide, names, replicates=args.replicates, seed=args.seed)
-    summary: dict = {"target": args.target, "split": args.split, "runs": names, "replicates": args.replicates, "seed": args.seed, "units": len(wide), "files": int(wide["file"].nunique())}
-
-    write_table(metrics_table(runs, boot), out, "metrics")
-    cases = by_case_table(runs)
-    write_table(cases, out, "recall_by_case")
-    if len(names) > 1:
-        write_table(mcnemar_table(wide, names), out, "mcnemar")
-    figure_by_case(cases, out)
-    figure_rates(runs, boot, out)
-
-    if args.full:
-        summary["main"] = main_hypothesis(boot, args.full).__dict__
-        without = parse_pairs(args.without)
-        if without:
-            shares = json.loads(Path(args.shares).read_text()) if args.shares else None
-            summary["h1"] = hypothesis1(boot, args.full, without, shares).__dict__
-            summary["h1"]["point_shares"] = predicted_shares(runs[args.full])
-    modes = parse_pairs(args.modes)
-    if {"no-llm", "select", "free"} <= set(modes):
-        summary["h2"] = hypothesis2(boot, modes["no-llm"], modes["select"], modes["free"]).__dict__
+    summary: dict = {"target": args.target, "split": args.split, "replicates": args.replicates, "seed": args.seed}
+    names = list(dict.fromkeys(args.runs + [v for v in [args.full] if v] + list(parse_pairs(args.without).values()) + list(parse_pairs(args.modes).values())))
+    if names:
+        runs = load_runs(args.data, args.target, args.split, names)
+        wide = paired(runs)
+        boot = cluster_bootstrap(wide, names, replicates=args.replicates, seed=args.seed)
+        summary.update({"runs": names, "units": len(wide), "files": int(wide["file"].nunique())})
+        write_table(metrics_table(runs, boot), out, "metrics")
+        cases = by_case_table(runs)
+        write_table(cases, out, "recall_by_case")
+        if len(names) > 1:
+            write_table(mcnemar_table(wide, names), out, "mcnemar")
+        figure_by_case(cases, out)
+        figure_rates(runs, boot, out)
+        if args.full:
+            summary["main"] = main_hypothesis(boot, args.full).__dict__
+            without = parse_pairs(args.without)
+            if without:
+                shares = json.loads(Path(args.shares).read_text()) if args.shares else None
+                summary["h1"] = hypothesis1(boot, args.full, without, shares).__dict__
+                summary["h1"]["point_shares"] = predicted_shares(runs[args.full])
+        modes = parse_pairs(args.modes)
+        if {"no-llm", "select", "free"} <= set(modes):
+            summary["h2"] = hypothesis2(boot, modes["no-llm"], modes["select"], modes["free"]).__dict__
     if args.h3:
-        summary["h3"] = h3_report(Path(args.h3), out)
+        summary["h3"] = h3_report([Path(p) for p in args.h3], out)
+    if not names and not args.h3:
+        raise SystemExit("nothing to report: give --runs and/or --h3")
 
     (out / "summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False, default=float) + "\n")
-    print(f"{len(wide)} units in {summary['files']} files, {len(names)} runs; written to {out}")
+    if names:
+        print(f"{summary['units']} units in {summary['files']} files, {len(names)} runs")
+    print(f"written to {out}")
     for key in ("main", "h1", "h2", "h3"):
         if key in summary:
             print(f"{key}: {summary[key]['verdict']}")
