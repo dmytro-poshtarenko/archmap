@@ -8,7 +8,7 @@ repos:
   - { id: infra, path: infra, role: infra, licence: MIT, publishable: true }
 components:
   - { id: gateway, kind: service, include: ["gateway:**"] }
-  - { id: orders-api, kind: service, include: ["orders:**"] }
-  - { id: archive-api, kind: service, include: ["archive:**"] }
+  - { id: orders-api, kind: service, include: ["orders:**"], aliases: [orders] }
+  - { id: archive-api, kind: service, include: ["archive:**"], aliases: [archive] }
 rules: { packs: [generic@1] }
 infra: { compose: ["infra:docker-compose.yml"] }

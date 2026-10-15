@@ -25,6 +25,12 @@ facades:
 valueSources:
   - { callee: settings.get, kind: setting, arg: 0 }
 
+# Services register under `if (!isRunningMs())` in the monolith; isRunningMs()
+# (apps/meteor/server/lib/isRunningMs.ts) is true when TRANSPORTER names NATS or TCP.
+matching:
+  guards:
+    - { call: "isRunningMs()", env: TRANSPORTER, pattern: "^(?:nats|TCP)" }
+
 factories:
   # export const Presence = proxify<IPresence>('presence'), in core-services and wherever proxify is imported from it
   - id: service-proxy

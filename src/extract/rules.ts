@@ -108,6 +108,15 @@ const PackFile = z.strictObject({
   libraries: z.array(RepoGlob).default([]),
   /** Library classes whose methods wrap requests: calls of those methods on an instance are lifted through. */
   facades: z.array(z.strictObject({ class: z.string(), file: RepoGlob })).default([]),
+  /** What the matching needs to know about the frameworks: environment switches and fixed transport paths. */
+  matching: z
+    .strictObject({
+      /** Calls in service registration guards that read the environment, e.g. `isRunningMs()`. */
+      guards: z.array(z.strictObject({ call: z.string(), env: z.string(), pattern: z.string() })).default([]),
+      /** Fixed paths of a transport, e.g. DDP over `/websocket`, which gateway rules route. */
+      transports: z.array(z.strictObject({ type: InteractionType, path: z.string().startsWith("/") })).default([]),
+    })
+    .default({ guards: [], transports: [] }),
 });
 
 export interface RuleSet {
@@ -119,6 +128,7 @@ export interface RuleSet {
   valueSources: Array<z.infer<typeof ValueSourceSpec>>;
   libraries: string[];
   facades: Array<{ class: string; file: string }>;
+  matching: z.infer<typeof PackFile>["matching"];
   /** Hash of the packs and detector versions; part of the freeze manifest. */
   hash: string;
 }
@@ -126,7 +136,7 @@ export interface RuleSet {
 export class RulesError extends Error {}
 
 /** Version of the extraction engine itself; bumped whenever its behaviour changes. */
-export const ENGINE_VERSION = 1;
+export const ENGINE_VERSION = 2;
 
 export function loadRules(refs: string[], root = toolRoot): RuleSet {
   const bindings: Binding[] = [];
@@ -135,6 +145,7 @@ export function loadRules(refs: string[], root = toolRoot): RuleSet {
   const valueSources: RuleSet["valueSources"] = [];
   const libraries: string[] = [];
   const facades: RuleSet["facades"] = [];
+  const matching: RuleSet["matching"] = { guards: [], transports: [] };
   const material: unknown[] = [ENGINE_VERSION];
   for (const ref of refs) {
     const file = join(root, "rules", `${ref}.yaml`);
@@ -160,7 +171,9 @@ export function loadRules(refs: string[], root = toolRoot): RuleSet {
     valueSources.push(...pack.valueSources);
     libraries.push(...pack.libraries);
     facades.push(...pack.facades);
+    matching.guards.push(...pack.matching.guards);
+    matching.transports.push(...pack.matching.transports);
     material.push(text);
   }
-  return { refs, bindings, factories, detectors, valueSources, libraries, facades, hash: hashOf(material) };
+  return { refs, bindings, factories, detectors, valueSources, libraries, facades, matching, hash: hashOf(material) };
 }

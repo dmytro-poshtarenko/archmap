@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
+import { classifySite } from "../../src/classify/features.js";
 import { loadConfig } from "../../src/config/load.js";
 import { dataLayout, resolveDataDir, toolRoot } from "../../src/core/paths.js";
 import { hashOf } from "../../src/core/hash.js";
@@ -10,6 +11,8 @@ import { extractAll, programOf } from "../../src/extract/run.js";
 import { loadRules } from "../../src/extract/rules.js";
 import { extractInfra } from "../../src/infra/index.js";
 import { hostOf } from "../../src/infra/model.js";
+import { ALL_SOURCES } from "../../src/match/resolve.js";
+import { matchingOf } from "../../src/match/run.js";
 import { locateRepo } from "../../src/workspace/repos.js";
 
 /**
@@ -60,4 +63,25 @@ describe.runIf(enabled)("Rocket.Chat system", () => {
     const comparison = compareRoutes(typedRoutes(programOf(db as never, loaded.config, layout, loaded.path), "main"), first.r.routes);
     expect(comparison.recall).toBeGreaterThanOrEqual(0.95);
   }, 120_000);
+
+  it("matches the stored sites the way the labelling guide routes them in the microservices profile", () => {
+    const { resolver, sites } = matchingOf(db as never, loaded.config);
+    const resolveAll = () => sites.map((s) => resolver.resolve(s, ALL_SOURCES));
+    const all = resolveAll();
+    expect(hashOf(resolveAll())).toBe(hashOf(all));
+    expect(all.filter((r) => r.status === "linked").length).toBeGreaterThan(4000);
+    const first = (pred: (i: number) => boolean) => all.findIndex((_, i) => pred(i));
+    const named = (display: string, components?: string[]) =>
+      first((i) => JSON.stringify(sites[i]?.address.parts) === JSON.stringify([{ k: "lit", v: display }]) && (!components || JSON.stringify(sites[i]?.components) === JSON.stringify(components)));
+
+    const setStatus = named("presence.setStatus", ["rocketchat"]);
+    expect(all[setStatus]?.target).toBe("action:-:presence.setStatus@presence-service");
+    expect(classifySite(resolver, sites[setStatus] as never).caseNo).toBe(4);
+    expect(all[named("license.hasModule", ["presence-service", "rocketchat"])]?.target).toBe("action:-:license.hasModule@rocketchat");
+    expect(all[named("team.create", ["rocketchat"])]).toMatchObject({ status: "none", reason: "intra" });
+    expect(all[named("users")]?.target).toBe("coll:-:users@mongo");
+    expect(all[named("/api/v1/rooms.info", ["web-client"])]?.target).toBe("http:GET:/api/v1/rooms.info@rocketchat");
+    // DDP declarations have no rules: without the language model no DDP site links
+    expect(sites.filter((s, i) => s.type === "ddp" && all[i]?.status === "linked")).toHaveLength(0);
+  }, 60_000);
 });

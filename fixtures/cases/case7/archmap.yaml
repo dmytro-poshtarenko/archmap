@@ -8,8 +8,8 @@ repos:
   - { id: infra, path: infra, role: infra, licence: MIT, publishable: true }
 components:
   - { id: web, kind: client, include: ["client:**"] }
-  - { id: orders-api, kind: service, include: ["orders:**"] }
-  - { id: catalog-api, kind: service, include: ["catalog:**"] }
+  - { id: orders-api, kind: service, include: ["orders:**"], aliases: [orders] }
+  - { id: catalog-api, kind: service, include: ["catalog:**"], aliases: [catalog] }
   - { id: nginx, kind: gateway }
 rules: { packs: [generic@1] }
 infra: { nginx: ["infra:nginx.conf"] }

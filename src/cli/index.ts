@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import { registerCheckRoutes } from "./commands/checkRoutes.js";
+import { registerClassify } from "./commands/classify.js";
 import { registerExtract } from "./commands/extract.js";
 import { registerExtractInfra } from "./commands/extractInfra.js";
 import { registerFetch } from "./commands/fetch.js";
 import { registerInventory } from "./commands/inventory.js";
 import { registerLabel } from "./commands/label.js";
 import { registerLicenceCheck } from "./commands/licenceCheck.js";
+import { registerMatch } from "./commands/match.js";
 import { registerPin } from "./commands/pin.js";
 import { DEFAULT_CONFIG } from "./context.js";
 
@@ -24,6 +26,8 @@ registerLabel(program);
 registerExtract(program);
 registerCheckRoutes(program);
 registerExtractInfra(program);
+registerClassify(program);
+registerMatch(program);
 
 try {
   await program.parseAsync(process.argv);

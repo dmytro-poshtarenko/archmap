@@ -124,4 +124,61 @@ export const migrations: Migration[] = [
       );
     `,
   },
+  {
+    version: 4,
+    name: "matching",
+    sql: `
+      -- Predicted case of every site, from the full evidence whatever the variant.
+      CREATE TABLE classification (
+        site     TEXT PRIMARY KEY,             -- call_site.id
+        case_no  INTEGER CHECK (case_no BETWEEN 1 AND 8),  -- NULL when the method finds no target in the system
+        features TEXT NOT NULL,                -- JSON {c1..c8}
+        status   TEXT NOT NULL,                -- resolution with every source
+        target   TEXT,
+        reason   TEXT
+      );
+
+      -- One run of the method: a variant (sources switched off) and, later, a language model mode.
+      CREATE TABLE run (
+        id          TEXT PRIMARY KEY,          -- variant name, e.g. 'full', 'no-infra'
+        created_at  TEXT NOT NULL,
+        variant     TEXT NOT NULL,             -- JSON {rules, infra, llm}
+        llm_mode    TEXT,                      -- select | free
+        models      TEXT,                      -- JSON
+        tool_sha    TEXT,
+        config_hash TEXT NOT NULL,
+        inputs      TEXT NOT NULL,             -- JSON: extraction, infrastructure and classification keys
+        timings     TEXT,                      -- JSON seconds per step
+        cost_usd    REAL NOT NULL DEFAULT 0
+      );
+
+      CREATE TABLE link (
+        run        TEXT NOT NULL REFERENCES run(id) ON DELETE CASCADE,
+        site       TEXT NOT NULL,
+        status     TEXT NOT NULL CHECK (status IN ('linked', 'none', 'ambiguous', 'unresolved')),
+        target     TEXT,                       -- target key, when linked
+        route      TEXT,                       -- route.id the key comes from
+        component  TEXT,                       -- target component
+        reason     TEXT,                       -- none: external | intra | not-deployed; otherwise why not linked
+        via        TEXT NOT NULL,              -- JSON array of gateways
+        provenance TEXT,                       -- rules | infra | llm: what decided the target
+        case_no    INTEGER,                    -- predicted case (classification)
+        alternatives TEXT NOT NULL,            -- JSON target keys, when ambiguous
+        llm_answer TEXT,                       -- cache key of the model's answer
+        PRIMARY KEY (run, site)
+      );
+      CREATE INDEX link_target ON link(run, target);
+
+      -- Candidates offered to the language model in select mode.
+      CREATE TABLE candidate (
+        run    TEXT NOT NULL REFERENCES run(id) ON DELETE CASCADE,
+        site   TEXT NOT NULL,
+        rank   INTEGER NOT NULL,
+        target TEXT NOT NULL,
+        route  TEXT,
+        score  REAL NOT NULL,
+        PRIMARY KEY (run, site, rank)
+      );
+    `,
+  },
 ];

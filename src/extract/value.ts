@@ -135,8 +135,16 @@ export function joinUrl(base: AbstractValue, path: AbstractValue): AbstractValue
   if (last?.k === "lit") baseParts[baseParts.length - 1] = { k: "lit", v: last.v.replace(/\/+$/, "") };
   const pathParts = [...path.parts];
   if (first?.k === "lit") pathParts[0] = { k: "lit", v: first.v.startsWith("/") || first.v === "" ? first.v : `/${first.v}` };
-  else pathParts.unshift({ k: "lit", v: "/" });
+  else if (!startsWithSlash(path)) pathParts.unshift({ k: "lit", v: "/" });
   return concat({ parts: baseParts, hops: base.hops }, { parts: pathParts, hops: path.hops });
+}
+
+/** Whether every form of the value starts with `/`, alternatives included. */
+function startsWithSlash(value: AbstractValue): boolean {
+  const first = value.parts[0];
+  if (first?.k === "lit") return first.v.startsWith("/");
+  if (first?.k === "alts") return first.options.every(startsWithSlash);
+  return false;
 }
 
 /** Sorted, distinct hop kinds of a value: what the fixtures record. */

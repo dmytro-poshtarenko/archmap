@@ -13,3 +13,14 @@ routes:
   - { at: "api:src/routes/orders.ts:@ordersRouter.get(\"/:id\"", kind: http, method: GET, template: "/api/orders/:id", component: api }
   - { at: "api:src/routes/users.ts:@.get(", kind: http, method: GET, template: /api/users/me, component: api }
   - { at: "api:src/routes/users.ts:@.put(", kind: http, method: PUT, template: /api/users/me, component: api }
+# Expected links without the language model (milestone M5): every site resolves
+# by rules and infrastructure.
+links:
+  - { site: "web:src/api/orders.ts:@http.get(\"/orders\")", target: "http:GET:/api/orders@api", case: 3 }
+  - { site: "web:src/api/orders.ts:@http.post(", target: "http:POST:/api/orders@api", case: 3 }
+  - { site: "web:src/api/orders.ts:@http.get(`", target: "http:GET:/api/orders/:id@api", case: 3 }
+  - { site: "web:src/api/users.ts:@request(\"/users/me\")", target: "http:GET:/api/users/me@api", case: 3 }
+  - { site: "web:src/api/users.ts:@method: \"PUT\"", target: "http:PUT:/api/users/me@api", case: 3 }
+  - { site: "api:src/routes/orders.ts:@emailQueue.add(", target: "event:-:emails@*", case: 3 }
+  - { site: "worker:src/worker.ts:@new Worker(", target: "event:-:emails@*", case: 1 }
+  - { site: "worker:src/worker.ts:@fetch(", target: "http:GET:/api/orders/:id@api", case: 2 }

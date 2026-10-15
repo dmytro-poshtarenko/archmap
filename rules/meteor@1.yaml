@@ -25,3 +25,8 @@ bindings:
     role: subscribe
     callee: { global: Meteor, members: [subscribe] }
     address: { arg: 0 }
+
+# Clients reach DDP through the websocket endpoint, which gateway rules route.
+matching:
+  transports:
+    - { type: ddp, path: /websocket }
