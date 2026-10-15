@@ -111,7 +111,8 @@ describe("the Ollama provider", () => {
       windows.push(body.options.num_ctx);
       expect(body.options).toMatchObject({ temperature: 0, seed: 42 });
       if (body.options.num_ctx < 13932 + 100) {
-        return { error: { type: "exceed_context_size_error", message: "too long", n_prompt_tokens: 13932, n_ctx: body.options.num_ctx } };
+        // as Ollama 0.40 sends it: the server's error as a JSON string
+        return { error: JSON.stringify({ error: { code: 400, type: "exceed_context_size_error", message: "too long", n_prompt_tokens: 13932, n_ctx: body.options.num_ctx } }) };
       }
       return { model: "qwen", message: { content: '{"value":"ok"}' }, done_reason: "stop", prompt_eval_count: 13932, eval_count: 4 };
     };

@@ -75,7 +75,7 @@ export class OllamaProvider implements LlmProvider {
     let numCtx = this.opts.numCtx === "auto" ? windowFor(estimateTokens(req), req.maxTokens, this.opts.maxCtx) : this.opts.numCtx;
     for (let attempt = 0; attempt < 4; attempt++) {
       const data = await this.chat(req, numCtx);
-      const error = typeof data.error === "object" ? data.error : data.error ? { message: data.error } : undefined;
+      const error = errorOf(data.error);
       if (error?.type === "exceed_context_size_error" && error.n_prompt_tokens !== undefined) {
         const needed = windowFor(error.n_prompt_tokens, req.maxTokens, this.opts.maxCtx);
         if (needed <= numCtx || error.n_prompt_tokens + req.maxTokens > this.opts.maxCtx) {
@@ -95,7 +95,7 @@ export class OllamaProvider implements LlmProvider {
   /** Input tokens as Ollama counts them: a request with a one-token window is refused with the exact count. */
   async countTokens(req: LlmRequest): Promise<number> {
     const data = await this.chat(req, 1);
-    const error = typeof data.error === "object" ? data.error : undefined;
+    const error = errorOf(data.error);
     if (error?.n_prompt_tokens !== undefined) return error.n_prompt_tokens;
     return data.prompt_eval_count ?? estimateTokens(req);
   }
@@ -127,6 +127,23 @@ export class OllamaProvider implements LlmProvider {
       cached: false,
       batchId: null,
     };
+  }
+}
+
+type OllamaError = { type?: string; message?: string; n_prompt_tokens?: number; n_ctx?: number };
+
+/**
+ * Ollama's error field: an object, or a string that holds the JSON of the
+ * underlying server's error (`{"error":{"type":"exceed_context_size_error",…}}`).
+ */
+export function errorOf(field: ChatResponse["error"]): OllamaError | undefined {
+  if (field === undefined || field === null) return undefined;
+  if (typeof field === "object") return field;
+  try {
+    const parsed = JSON.parse(field) as { error?: OllamaError } | OllamaError;
+    return typeof parsed === "object" && parsed !== null && "error" in parsed && parsed.error ? parsed.error : (parsed as OllamaError);
+  } catch {
+    return { message: field };
   }
 }
 

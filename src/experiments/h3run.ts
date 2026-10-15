@@ -11,8 +11,13 @@ import type { LlmAnswer, LlmProvider } from "../llm/types.js";
 import type { Db } from "../store/db.js";
 import { type Controller, found, paddingStatements, prepareController, type Variant, variantsOf } from "./h3.js";
 
-/** Target sizes of the padded length levels, in characters (about 6k to 96k tokens of code). */
-export const LEVEL_CHARS = [18_000, 36_000, 72_000, 144_000, 288_000];
+/**
+ * Target sizes of the padded length levels, in characters. Numbered code
+ * tokenizes at about 2.2 characters per token for the local model, so the
+ * levels are about 8k to 100k tokens: all fit the 128k window of the local
+ * model and the cloud model's 1M.
+ */
+export const LEVEL_CHARS = [18_000, 36_000, 72_000, 144_000, 216_000];
 /** Size of the position series. */
 export const POSITION_CHARS = 72_000;
 const CONTROLLERS = 12;
