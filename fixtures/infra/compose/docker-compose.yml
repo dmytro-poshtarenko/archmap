@@ -1,0 +1,29 @@
+services:
+  traefik:
+    image: traefik:v3.1
+    labels:
+      - traefik.http.middlewares.strip-api.stripprefix.prefixes=/api
+  web:
+    image: example/web
+    labels:
+      traefik.http.routers.web.rule: PathPrefix(`/`)
+  api:
+    image: example/api:${TAG:-latest}
+    environment:
+      PORT: ${API_PORT:-3000}
+      MODE: ${MODE:-single}
+      QUEUE_URL: amqp://${QUEUE_HOST}:5672
+    labels:
+      traefik.http.routers.api.rule: Host(`shop.example`) && PathPrefix(`/api`)
+      traefik.http.routers.api.middlewares: strip-api
+      traefik.http.services.api.loadbalancer.server.port: 3000
+  worker:
+    image: example/worker
+    environment:
+      - API_URL=http://api:${API_PORT:-3000}
+  rabbitmq:
+    image: rabbitmq:3
+    container_name: rabbit-1
+    networks:
+      default:
+        aliases: [rabbit]

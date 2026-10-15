@@ -79,10 +79,13 @@ rules:
   packs: [generic@1, meteor@1, rocketchat@1]
   liftDepth: 3
 
+# Microservices profile: docker-compose-ci.yml with the transporter Rocket.Chat's own CI sets for its
+# microservices runs (.github/workflows/ci.yml: transporter 'nats://nats:4222').
 infra:
   profile: microservices
+  env: { TRANSPORTER: "nats://nats:4222" }
   compose: ["main:docker-compose-ci.yml"]
-  helm: [{ chart: "helm:rocketchat" }]
+  helm: [{ chart: "helm:rocketchat", release: rocketchat }]
 
 llm:
   cloud: { model: claude-opus-5-5, effort: { extract: medium, select: low, free: medium }, batch: true, fallbacks: false }

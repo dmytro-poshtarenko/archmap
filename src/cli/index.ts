@@ -2,6 +2,7 @@
 import { Command } from "commander";
 import { registerCheckRoutes } from "./commands/checkRoutes.js";
 import { registerExtract } from "./commands/extract.js";
+import { registerExtractInfra } from "./commands/extractInfra.js";
 import { registerFetch } from "./commands/fetch.js";
 import { registerInventory } from "./commands/inventory.js";
 import { registerLabel } from "./commands/label.js";
@@ -22,6 +23,7 @@ registerLicenceCheck(program);
 registerLabel(program);
 registerExtract(program);
 registerCheckRoutes(program);
+registerExtractInfra(program);
 
 try {
   await program.parseAsync(process.argv);

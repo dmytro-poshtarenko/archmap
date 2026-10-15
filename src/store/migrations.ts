@@ -93,4 +93,35 @@ export const migrations: Migration[] = [
       CREATE INDEX route_template ON route(kind, template);
     `,
   },
+  {
+    version: 3,
+    name: "infrastructure",
+    sql: `
+      CREATE TABLE container (
+        id         INTEGER PRIMARY KEY,
+        name       TEXT NOT NULL,
+        format     TEXT NOT NULL,
+        source     TEXT NOT NULL,              -- '<repo>:<path>:<line>'
+        component  TEXT,
+        image      TEXT,
+        hostnames  TEXT NOT NULL,              -- JSON array
+        ports      TEXT NOT NULL,              -- JSON array
+        env        TEXT NOT NULL               -- JSON object, after substitution
+      );
+      CREATE INDEX container_component ON container(component);
+
+      CREATE TABLE gateway_rule (
+        id        INTEGER PRIMARY KEY,
+        gateway   TEXT NOT NULL,
+        match     TEXT NOT NULL CHECK (match IN ('prefix', 'exact', 'regex')),
+        path      TEXT NOT NULL,
+        host      TEXT,
+        strip     TEXT,
+        replace   TEXT,
+        target    TEXT NOT NULL,               -- container name
+        priority  INTEGER NOT NULL,
+        source    TEXT NOT NULL
+      );
+    `,
+  },
 ];

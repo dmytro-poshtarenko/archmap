@@ -18,11 +18,13 @@
     "test:watch": "vitest",
     "archmap": "tsx src/cli/index.ts",
     "licence-check": "tsx src/cli/index.ts licence-check",
-    "prepare": "git config core.hooksPath .githooks || true"
+    "prepare": "git config core.hooksPath .githooks || true",
+    "test:system": "ARCHMAP_SYSTEM=1 vitest run test/system"
   },
   "dependencies": {
     "better-sqlite3": "13.0.3",
     "commander": "15.0.0",
+    "hcl2-json-parser": "1.0.1",
     "js-yaml": "5.4.3",
     "picomatch": "4.0.7",
     "tinyglobby": "0.2.17",

@@ -152,10 +152,10 @@ describe("component resolution", () => {
   it("prefers the most specific glob, then declaration order", () => {
     expect(specificity("apps/server/src/client/**")[0]).toBeGreaterThan(specificity("apps/server/**")[0]);
     const resolve = componentResolver("main", [
-      { id: "a", kind: "service", include: ["main:apps/**"], exclude: ["main:apps/skip/**"] },
-      { id: "b", kind: "service", include: ["main:apps/b/**"], exclude: [] },
-      { id: "c", kind: "service", include: ["main:apps/b/**"], exclude: [] },
-      { id: "other", kind: "service", include: ["other:apps/**"], exclude: [] },
+      { id: "a", kind: "service", include: ["main:apps/**"], exclude: ["main:apps/skip/**"], aliases: [] },
+      { id: "b", kind: "service", include: ["main:apps/b/**"], exclude: [], aliases: [] },
+      { id: "c", kind: "service", include: ["main:apps/b/**"], exclude: [], aliases: [] },
+      { id: "other", kind: "service", include: ["other:apps/**"], exclude: [], aliases: [] },
     ]);
     expect(resolve("apps/x.ts")).toBe("a");
     expect(resolve("apps/b/x.ts")).toBe("b");

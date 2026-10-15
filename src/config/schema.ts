@@ -38,6 +38,9 @@ export const LicenceZone = z.strictObject({
   publishable: z.boolean(),
 });
 
+/** An infrastructure file, alone (`repo:glob`) or with the gateway component its rules belong to. */
+export const InfraFile = z.union([RepoGlob, z.strictObject({ file: RepoGlob, gateway: z.string() })]);
+
 export const ComponentKind = z.enum(["client", "service", "gateway", "bus", "database", "external", "scheduler"]);
 export type ComponentKind = z.infer<typeof ComponentKind>;
 
@@ -47,6 +50,8 @@ export const ComponentConfig = z.strictObject({
   /** Code mapped to the component; empty for parts known only from infrastructure (database, bus, gateway). */
   include: z.array(RepoGlob).default([]),
   exclude: z.array(RepoGlob).default([]),
+  /** Other names of the component in the infrastructure: compose services, workloads, host names. */
+  aliases: z.array(z.string()).default([]),
 });
 export type ComponentConfig = z.infer<typeof ComponentConfig>;
 
@@ -74,11 +79,24 @@ export const TargetConfig = z.strictObject({
   infra: z
     .strictObject({
       profile: z.string().optional(),
+      /** Environment of the deployment profile; it wins over `.env` files and compose defaults. */
+      env: z.record(z.string(), z.string()).default({}),
       compose: z.array(RepoGlob).default([]),
-      helm: z.array(z.strictObject({ chart: RepoGlob, values: z.array(RepoGlob).default([]) })).default([]),
-      k8s: z.array(RepoGlob).default([]),
-      terraform: z.array(RepoGlob).default([]),
-      nginx: z.array(RepoGlob).default([]),
+      helm: z
+        .array(
+          z.strictObject({
+            chart: RepoGlob,
+            values: z.array(RepoGlob).default([]),
+            release: z.string().default("release"),
+            gateway: z.string().default("ingress"),
+          }),
+        )
+        .default([]),
+      /** Kubernetes manifests; the gateway names the component of their Ingress (default `ingress`). */
+      k8s: z.array(InfraFile).default([]),
+      terraform: z.array(InfraFile).default([]),
+      /** nginx configurations; the gateway names the component running them (default `nginx`). */
+      nginx: z.array(InfraFile).default([]),
     })
     .prefault({}),
   interactionTypes: z.array(InteractionType).default(["http", "ddp", "broker", "db", "trigger"]),
