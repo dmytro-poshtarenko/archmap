@@ -1,0 +1,9 @@
+{
+  "pinnedAt": "2026-10-15T09:39:32.841Z",
+  "repos": {
+    "desktop": "158b7c6cbbab88f2c39ab23f98ed65647c050133",
+    "helm": "eea375d7a9b74b98066d8681f6ba9715ec6340ef",
+    "main": "16badb07aedc365a489b9f4ac5b6d8e64ad65373",
+    "mobile": "19a8c31ae31df949a1a1ec5c80d1e1ce502858c0"
+  }
+}

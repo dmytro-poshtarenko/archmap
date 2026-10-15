@@ -1,0 +1,4 @@
+#!/bin/sh
+# Refuses a commit while any working file repeats code that may not be
+# published (Rocket.Chat EE, helm-charts). Needs `archmap fetch` once.
+exec pnpm -s archmap licence-check

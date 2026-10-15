@@ -1,0 +1,85 @@
+# Target: Rocket.Chat. Commits are pinned in rocketchat.lock.json by `archmap pin`.
+name: rocketchat
+
+repos:
+  - id: main
+    url: github.com/RocketChat/Rocket.Chat
+    branch: develop
+    role: main
+    licence: MIT
+    publishable: true
+  - id: desktop
+    url: github.com/RocketChat/Rocket.Chat.Electron
+    role: desktop
+    licence: MIT
+    publishable: true
+  # Mobile client: held out until the method is frozen (pinned, never fetched before).
+  - id: mobile
+    url: github.com/RocketChat/Rocket.Chat.ReactNative
+    role: heldout
+    licence: MIT
+    publishable: true
+  # No licence file: analysed locally, never quoted or published.
+  - id: helm
+    url: github.com/RocketChat/helm-charts
+    role: infra
+    licence: none
+    publishable: false
+
+licenceZones:
+  - { repo: main, globs: ["ee/**", "apps/meteor/ee/**"], licence: RC-EE, publishable: false }
+
+# Code-to-component mapping only; addresses and ports come from the infrastructure descriptions.
+# Ids follow the docker-compose service names. Shared packages (packages/*, ee/packages/*) stay
+# unmapped here: they are attributed to the components that import them once the module graph exists.
+components:
+  - { id: web-client, kind: client, include: ["main:apps/meteor/client/**"] }
+  - { id: livechat, kind: client, include: ["main:packages/livechat/**"] }
+  - { id: desktop, kind: client, include: ["desktop:**"] }
+  - { id: mobile, kind: client, include: ["mobile:**"] }
+  - { id: rocketchat, kind: service, include: ["main:apps/meteor/**"] }
+  - { id: account-service, kind: service, include: ["main:ee/apps/account-service/**"] }
+  - { id: authorization-service, kind: service, include: ["main:ee/apps/authorization-service/**"] }
+  - { id: ddp-streamer-service, kind: service, include: ["main:ee/apps/ddp-streamer/**"] }
+  - { id: omnichannel-transcript-service, kind: service, include: ["main:ee/apps/omnichannel-transcript/**"] }
+  - { id: presence-service, kind: service, include: ["main:ee/apps/presence-service/**"] }
+  - { id: queue-worker-service, kind: service, include: ["main:ee/apps/queue-worker/**"] }
+  - { id: traefik, kind: gateway }
+  - { id: nats, kind: bus }
+  - { id: mongo, kind: database }
+
+# Test, story and mock code is not part of the running system.
+exclude:
+  - "**/*.spec.*"
+  - "**/*.test.*"
+  - "**/tests/**"
+  - "**/__tests__/**"
+  - "**/__mocks__/**"
+  - "**/*.stories.*"
+  - "**/.storybook/**"
+  - "**/mock-providers/**"
+  - "**/*.d.ts"
+
+rules:
+  packs: [generic@1, rocketchat@1]
+  bindings: ["rules/bindings/*.yaml"]
+  liftDepth: 3
+
+infra:
+  profile: microservices
+  compose: ["main:docker-compose-ci.yml"]
+  helm: [{ chart: "helm:rocketchat" }]
+
+llm:
+  cloud: { model: claude-opus-5-5, effort: { extract: medium, select: low, free: medium }, batch: true, fallbacks: false }
+  local: { model: "qwen3:30b-a3b-instruct-2507-q4_K_M", seed: 42, numCtx: auto }
+  resolve: { mode: select, candidates: 5, contextLines: 40 }
+  chunking: { enabled: false, maxTokens: 6000 }
+  stability: { share: 0.1, repeats: 3 }
+  budgetUsd: 60
+
+experiment:
+  seeds: { split: 20261015, sample: 7, bootstrap: 11 }
+  devShare: 0.3
+  sample: { main: 400, minPerType: 30, heldout: 100 }
+  secondAnnotator: 0.2
