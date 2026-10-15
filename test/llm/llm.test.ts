@@ -123,6 +123,25 @@ describe("the Ollama provider", () => {
     expect(windows).toEqual([4096, windowFor(13932, 100, 131072)]);
   });
 
+  it("counts a long prompt exactly and widens a window the answer filled", async () => {
+    const windows: number[] = [];
+    const fake = async (_url: string, payload: unknown) => {
+      const n = (payload as { options: { num_ctx: number } }).options.num_ctx;
+      windows.push(n);
+      // a one-token window is refused with the exact count; that count is far above the estimate
+      if (n === 1) return { error: JSON.stringify({ error: { type: "exceed_context_size_error", n_prompt_tokens: 20000, n_ctx: 1 } }) };
+      // the first real request filled its window to the last token
+      if (windows.length === 2) return { model: "qwen", message: { content: '{"value":"x"}' }, done_reason: "stop", prompt_eval_count: 20000, eval_count: n - 20000 };
+      return { model: "qwen", message: { content: '{"value":"ok"}' }, done_reason: "stop", prompt_eval_count: 20000, eval_count: 50 };
+    };
+    const long = { ...request("x".repeat(30000)), maxTokens: 100 };
+    const a = await new OllamaProvider("qwen", { url: "http://x", seed: 1, numCtx: "auto", maxCtx: 131072, post: fake }).complete(long);
+    expect(windows[0]).toBe(1);
+    expect(windows[1]).toBe(windowFor(20000, 100, 131072));
+    expect(windows[2]).toBeGreaterThan(windows[1] as number);
+    expect(a.parsed).toEqual({ value: "ok" });
+  });
+
   it("reports a cut answer and an input beyond the largest window", async () => {
     const cut = async () => ({ model: "qwen", message: { content: '{"val' }, done_reason: "length", prompt_eval_count: 10, eval_count: 100 });
     const a = await new OllamaProvider("qwen", { url: "http://x", seed: 1, numCtx: "auto", maxCtx: 8192, post: cut }).complete(request("q"));

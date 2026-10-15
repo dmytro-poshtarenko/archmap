@@ -72,7 +72,10 @@ export class OllamaProvider implements LlmProvider {
 
   async complete<T>(req: LlmRequest<T>): Promise<LlmAnswer<T>> {
     const t0 = performance.now();
-    let numCtx = this.opts.numCtx === "auto" ? windowFor(estimateTokens(req), req.maxTokens, this.opts.maxCtx) : this.opts.numCtx;
+    // a long prompt is counted exactly first: an estimate that falls short leaves too little room to answer
+    const estimate = estimateTokens(req);
+    const prompt = this.opts.numCtx === "auto" && estimate > EXACT_FROM ? await this.countTokens(req) : estimate;
+    let numCtx = this.opts.numCtx === "auto" ? windowFor(prompt, req.maxTokens, this.opts.maxCtx) : this.opts.numCtx;
     for (let attempt = 0; attempt < 4; attempt++) {
       const data = await this.chat(req, numCtx);
       const error = errorOf(data.error);
@@ -85,6 +88,16 @@ export class OllamaProvider implements LlmProvider {
         continue;
       }
       if (error) throw new Error(`ollama: ${error.message ?? JSON.stringify(error)}`);
+      const used = (data.prompt_eval_count ?? 0) + (data.eval_count ?? 0);
+      if (used >= numCtx - 1) {
+        // the answer reached the end of the window: the server may have shifted the context, dropping input
+        const wider = Math.min(this.opts.maxCtx, numCtx + req.maxTokens + 2048);
+        if (wider > numCtx) {
+          numCtx = wider;
+          continue;
+        }
+        return this.answer(req, t0, data.message?.content ?? "", data.model ?? null, "truncated-input", { input: data.prompt_eval_count ?? 0, output: data.eval_count ?? 0 });
+      }
       const raw = data.message?.content ?? "";
       const stop = data.done_reason === "length" ? "max_tokens" : "end_turn";
       return this.answer(req, t0, raw, data.model ?? null, stop, { input: data.prompt_eval_count ?? 0, output: data.eval_count ?? 0 });
@@ -147,7 +160,10 @@ export function errorOf(field: ChatResponse["error"]): OllamaError | undefined {
   }
 }
 
-/** Code tokenizes at roughly three characters per token; the estimate errs high. */
+/** Prompts estimated above this many tokens are counted exactly before they are sent. */
+const EXACT_FROM = 8192;
+
+/** Code tokenizes at roughly three characters per token (numbered code nearer 2.5); a first guess only. */
 export function estimateTokens(req: LlmRequest): number {
   return Math.ceil((req.system.length + req.user.length) / 3) + 64;
 }
