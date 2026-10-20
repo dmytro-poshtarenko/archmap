@@ -102,7 +102,7 @@ export async function runAll(db: Db, loaded: LoadedConfig, layout: DataLayout, o
     });
   }
 
-  const inSample = opts.sites === "sample" ? sampledLines(layout, config.name) : undefined;
+  const inSample = opts.sites === "sample" ? sampledLines(layout, config.name, opts.split) : undefined;
   const plan = [
     { base: "full", mode: "select" as const, scope: "open" as const },
     { base: "no-infra", mode: "select" as const, scope: "open" as const },
@@ -163,11 +163,13 @@ export async function runAll(db: Db, loaded: LoadedConfig, layout: DataLayout, o
   return steps;
 }
 
-/** Sites on the lines of the labelled sample. */
-function sampledLines(layout: DataLayout, target: string): (site: CallSite) => boolean {
+/** Sites on the lines of the labelled sample in one split: the test split's lines are asked about only when the test split is measured. */
+function sampledLines(layout: DataLayout, target: string, split: Split): (site: CallSite) => boolean {
   const candidates = openCandidates(layout, target);
   try {
-    const rows = candidates.prepare("SELECT c.repo, c.path, c.line FROM sample s JOIN candidate c ON c.id = s.candidate").all() as Array<{ repo: string; path: string; line: number }>;
+    const rows = candidates
+      .prepare("SELECT c.repo, c.path, c.line FROM sample s JOIN candidate c ON c.id = s.candidate WHERE c.split = ?")
+      .all(split) as Array<{ repo: string; path: string; line: number }>;
     const byFile = new Map<string, number[]>();
     for (const r of rows) byFile.set(`${r.repo}:${r.path}`, [...(byFile.get(`${r.repo}:${r.path}`) ?? []), r.line]);
     return (s) => (byFile.get(`${s.repo}:${s.path}`) ?? []).some((line) => line >= s.line && line <= s.endLine);
