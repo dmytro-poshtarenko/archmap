@@ -170,8 +170,9 @@ export function normaliseFree(
       proposed = `http:${method}:${path}@${component}`;
       const form = httpForms({ parts: [{ k: "lit", v: path }], hops: [] }).forms[0];
       if (form) {
+        // only the routes this variant knows: without the rules, the ones the model extracted
         const fits = ctx.resolver
-          .routesOf("http", { ...ctx.sources, rules: true })
+          .routesOf("http", ctx.sources)
           .filter((r) => r.components.includes(component) && (r.method === null || method === "*" || r.method.toUpperCase() === method))
           .map((r) => ({ r, fit: fitPath(form.segments, form.text, ctx.resolver.patternOf(r.template)) }))
           .filter((x) => x.fit !== null && !x.fit.weak)
@@ -191,9 +192,12 @@ export function normaliseFree(
     case "event":
       proposed = `event:-:${t.name.trim()}@*`;
       break;
-    case "collection":
-      proposed = `coll:-:${t.name.trim()}@${component}`;
+    case "collection": {
+      // the key of a collection names its database, whichever part the model says uses it
+      const keys = ctx.resolver.databases().map((d) => `coll:-:${t.name.trim()}@${d}`);
+      proposed = keys.find((k) => ctx.catalog.has(canonicalTargetKey(k))) ?? keys[0] ?? `coll:-:${t.name.trim()}@${component}`;
       break;
+    }
     case "timer":
       proposed = `timer:-:${t.name.trim()}@${component}`;
       break;

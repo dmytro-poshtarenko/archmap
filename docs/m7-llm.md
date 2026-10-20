@@ -104,7 +104,17 @@
   (`{?}`) gets no candidates, since nothing can be compared.
 - **Free answers.** They are normalised against the method's catalog:
   - the part is found by id, alias or container host;
-  - an HTTP path is fitted to the templates of that part.
+  - an HTTP path is fitted to the templates of that part, among the routes
+    the variant knows: without the rules, only those the model extracted;
+  - a collection's key names its database, whatever part the model gives.
+    The key format fixes this part, as `*` for an event.
+
+  Both rules were fixed on 2026-10-20 after the local dev run:
+  - qwen named the right collection with the part that uses it
+    (`coll:-:users@rocketchat`), so about 38 of 88 "invented" answers in
+    full free mode were not inventions;
+  - the HTTP fit had always used the rules' routes, so without the rules an
+    answer could still reach a route only the rules declare.
   
   A key outside the catalog makes no link and is recorded as invented
   (`reason = llm-invented:<key>`).

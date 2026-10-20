@@ -7,6 +7,7 @@ import { httpForms } from "../../src/match/address.js";
 import { jaccard, levenshtein, rankCandidates, tokens } from "../../src/match/candidates.js";
 import { passGateway } from "../../src/match/gateway.js";
 import { evaluateGuard } from "../../src/match/guards.js";
+import { methodCatalog, normaliseFree } from "../../src/llm/tasks/resolve.js";
 import { ALL_SOURCES, Resolver, type ResolverInput } from "../../src/match/resolve.js";
 import { fitPath, routePattern } from "../../src/match/routes.js";
 
@@ -270,5 +271,31 @@ describe("select-mode candidates", () => {
     const ranked = rankCandidates(r, call, res, ALL_SOURCES).map((x) => x.target);
     expect(ranked.slice(0, 2).sort()).toEqual(["http:GET:/orders/:id@server", "http:GET:/orders/:orderId@presence-service"]);
     expect(ranked).toContain("http:GET:/orders/:id/items@server");
+  });
+});
+
+describe("free answers of the model", () => {
+  const free = (kind: "http" | "collection", name: string, component: string, method: string | null = null) => ({ target: { kind, method, name, component }, confidence: 1 });
+  const part = (name: string) => name;
+
+  it("name a collection's database, whichever part the model says uses it", () => {
+    const sites = [site("main:a.ts", "db", "access", lit("users"), ["server"])];
+    const r = resolver(sites, []);
+    const ctx = { resolver: r, catalog: methodCatalog(r, sites, ALL_SOURCES), partOf: part, sources: ALL_SOURCES };
+    expect(normaliseFree(free("collection", "users", "server"), ctx)).toMatchObject({ key: "coll:-:users@mongo", invented: false });
+    expect(normaliseFree(free("collection", "Users.findOneById", "server"), ctx)).toMatchObject({ key: null, invented: true });
+  });
+
+  it("fit an HTTP path only to the routes the variant knows", () => {
+    const declared = { ...route("main:api.ts", "http", "/api/v1/rooms.info", ["server"], null, "GET"), source: "rules" as const };
+    const extracted = { ...route("main:users.ts", "http", "/api/v1/users.info", ["server"], null, "GET"), source: "llm" as const };
+    const r = resolver([], [declared, extracted]);
+    const noRules = { ...ALL_SOURCES, rules: false };
+    const ctx = { resolver: r, catalog: methodCatalog(r, [], noRules), partOf: part, sources: noRules };
+    // without the rules the method does not know the declared route, so the answer cannot reach it
+    expect(normaliseFree(free("http", "/api/v1/rooms.info", "server", "GET"), ctx)).toMatchObject({ key: null, invented: true });
+    expect(normaliseFree(free("http", "/api/v1/users.info", "server", "GET"), ctx)).toMatchObject({ key: "http:GET:/api/v1/users.info@server", invented: false });
+    const full = { ...ctx, catalog: methodCatalog(r, [], ALL_SOURCES), sources: ALL_SOURCES };
+    expect(normaliseFree(free("http", "/api/v1/rooms.info", "server", "GET"), full)).toMatchObject({ key: "http:GET:/api/v1/rooms.info@server", invented: false });
   });
 });
