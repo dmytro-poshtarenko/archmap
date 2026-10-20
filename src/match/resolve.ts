@@ -225,28 +225,29 @@ export class Resolver {
 
   private httpForm(site: CallSite, form: HttpAddress, methods: string[] | null, sources: Sources): Outcome {
     if (form.host.k === "unknown" && form.segments.length === 0) return unresolved("unknown-address");
-    let segments = form.segments;
-    let hosts: string[] | null = null;
-    if (form.host.k === "literal") hosts = [form.host.host];
+    // each base address the deployment gives: its host, and the path prefix that comes with it
+    let bases: Array<{ host: string; path: string }> | null = null;
+    if (form.host.k === "literal") bases = [{ host: form.host.host, path: "" }];
     else if (form.host.k === "env" || form.host.k === "setting") {
       const values = sources.env ? this.valuesOf(site, form.host.k, form.host.key) : [];
-      if (values.length > 0) {
-        const parsed = values.map(baseOf);
-        hosts = [...new Set(parsed.map((p) => p.host))];
-        const prefixes = [...new Set(parsed.map((p) => p.path))];
-        if (prefixes.length === 1 && prefixes[0] !== "") segments = [...pathSegments(prefixes[0] as string), ...segments];
-      }
+      if (values.length > 0) bases = [...new Map(values.map(baseOf).map((b) => [`${b.host}${b.path}`, b])).values()];
     }
+    if (bases !== null) {
+      return combine(
+        bases.map((b) => {
+          const segments = b.path === "" ? form.segments : [...pathSegments(b.path), ...form.segments];
+          const direct = this.fitHttp(segments, methods, sources);
+          return this.httpToHost(site, b.host, segments, methods, sources, direct, direct.some((f) => f.route.source === "rules"));
+        }),
+      );
+    }
+    const segments = form.segments;
     const direct = this.fitHttp(segments, methods, sources);
     const ruleRoute = direct.some((f) => f.route.source === "rules");
-    if (hosts === null && (form.host.k === "env" || form.host.k === "setting") && best(direct).length === 0) {
-      // a base address from configuration that no part of the system serves: an outside service
-      return { status: "none", candidates: [], reason: "external", via: [], ruleRoute };
-    }
-
-    if (hosts !== null) {
-      const outcomes = hosts.map((h) => this.httpToHost(site, h, segments, methods, sources, direct, ruleRoute));
-      return combine(outcomes);
+    if ((form.host.k === "env" || form.host.k === "setting") && best(direct).length === 0) {
+      // a base address from configuration that the deployment does not give: without a route
+      // that fits, the target may be outside the system or declared by a mechanism without rules
+      return unresolved("config-host", ruleRoute);
     }
     if (form.host.k === "none" && sources.gateway && this.throughGateway(site)) {
       const passed = this.httpThroughGateway(site, segments, null, methods, sources, ruleRoute);

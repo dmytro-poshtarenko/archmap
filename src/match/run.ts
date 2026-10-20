@@ -1,7 +1,7 @@
 import type { TargetConfig } from "../config/schema.js";
 import { hashOf } from "../core/hash.js";
 import { toolRoot } from "../core/paths.js";
-import type { CallSite } from "../core/types.js";
+import type { CallSite, RouteDecl } from "../core/types.js";
 import { loadRoutes, loadSites } from "../extract/run.js";
 import { loadRules } from "../extract/rules.js";
 import { loadInfra } from "../infra/index.js";
@@ -49,11 +49,17 @@ export function matchingOf(db: Db, config: TargetConfig): Matching {
     profileEnv: config.infra.env,
     options: rules.matching,
   });
-  const llmRoutes = hashOf(routes.filter((r) => r.source === "llm").map((r) => [r.id, r.kind, r.method, r.template, r.components]));
+  return { resolver, sites, inputs: inputsOf(db, config, routes, rules.hash) };
+}
+
+/** What the answers of a matching depend on, without building the resolver. */
+export function inputsOf(db: Db, config: TargetConfig, routes?: RouteDecl[], rulesHash?: string): Matching["inputs"] {
+  const llm = (routes ?? loadRoutes(db)).filter((r) => r.source === "llm");
   return {
-    resolver,
-    sites,
-    inputs: { extract: getMeta(db, "extract.key") ?? null, infra: getMeta(db, "infra.key") ?? null, rules: rules.hash, llmRoutes },
+    extract: getMeta(db, "extract.key") ?? null,
+    infra: getMeta(db, "infra.key") ?? null,
+    rules: rulesHash ?? loadRules(config.rules.packs).hash,
+    llmRoutes: hashOf(llm.map((r) => [r.id, r.kind, r.method, r.template, r.components])),
   };
 }
 

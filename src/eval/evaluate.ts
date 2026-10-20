@@ -53,16 +53,23 @@ export function alignUnits(
   links: Map<string, StoredLink>,
   compare: "key" | "path" = "key",
 ): { units: Unit[]; pending: number } {
-  const weights = weightsOf(frame, split);
-  const byFile = new Map<string, CallSite[]>();
-  for (const s of sites) byFile.set(`${s.repo}:${s.path}`, [...(byFile.get(`${s.repo}:${s.path}`) ?? []), s]);
   const label = new Map(labels.filter((l) => l.origin === "sample").map((l) => [l.item, l]));
+  const weights = weightsOf(frame, split, new Set(label.keys()));
+  const byFile = new Map<string, CallSite[]>();
+  for (const s of sites) {
+    const key = `${s.repo}:${s.path}`;
+    const list = byFile.get(key);
+    if (list) list.push(s);
+    else byFile.set(key, [s]);
+  }
   const sampled = frame.sampled.filter((id) => frame.candidates.get(id)?.split === split);
   const used = new Set<string>();
   const pick = (l: Label): CallSite | null => {
     const last = l.endLine ?? l.line;
     const overlapping = (byFile.get(`${l.repo}:${l.path}`) ?? []).filter((s) => !used.has(s.id) && s.line <= last && s.endLine >= l.line);
-    overlapping.sort((a, b) => Math.abs(a.line - l.line) - Math.abs(b.line - l.line) || a.col - b.col);
+    // a call of the labelled type first: one line may hold a broker call with a model call inside it
+    const other = (s: CallSite) => (l.type !== null && s.type !== l.type ? 1 : 0);
+    overlapping.sort((a, b) => other(a) - other(b) || Math.abs(a.line - l.line) - Math.abs(b.line - l.line) || a.col - b.col);
     return overlapping[0] ?? null;
   };
   // sites first, so a site is never taken by a neighbouring line that is no site
@@ -108,14 +115,18 @@ export function alignUnits(
   return { units, pending };
 }
 
-/** Population / sample per stratum within the split. */
-function weightsOf(frame: SampleFrame, split: string): Map<string, number> {
+/**
+ * Population / labelled sample per stratum within the split. Lines not
+ * labelled yet are left out of the sample size, so a partly labelled stratum
+ * is not underweighted.
+ */
+function weightsOf(frame: SampleFrame, split: string, labelled: Set<string>): Map<string, number> {
   const population = new Map<string, number>();
   for (const c of frame.candidates.values()) if (c.split === split) population.set(c.stratum, (population.get(c.stratum) ?? 0) + 1);
   const sample = new Map<string, number>();
   for (const id of frame.sampled) {
     const c = frame.candidates.get(id);
-    if (c?.split === split) sample.set(c.stratum, (sample.get(c.stratum) ?? 0) + 1);
+    if (c?.split === split && labelled.has(id)) sample.set(c.stratum, (sample.get(c.stratum) ?? 0) + 1);
   }
   return new Map([...sample].map(([s, n]) => [s, (population.get(s) ?? n) / n]));
 }
@@ -155,7 +166,7 @@ export interface Metrics {
  * link the method gives on a line that is no call site counts against
  * precision.
  */
-export function metricsOf(units: Unit[], partsOf?: (u: Unit) => string[]): Metrics {
+export function metricsOf(units: Unit[], partsOf?: (u: Unit) => string[], compare: "key" | "path" = "key"): Metrics {
   const rates = (w: (u: Unit) => number): Rates => {
     let cstar = 0;
     let cstar17 = 0;
@@ -209,7 +220,7 @@ export function metricsOf(units: Unit[], partsOf?: (u: Unit) => string[]): Metri
     e.precision = ratio(e.correct, e.predicted);
     byType[t] = e;
   }
-  return { units: units.length, unweighted: rates(() => 1), weighted: rates((u) => u.weight), byCase: sorted(byCase), byType: sorted(byType), parts: partLinks(units, partsOf) };
+  return { units: units.length, unweighted: rates(() => 1), weighted: rates((u) => u.weight), byCase: sorted(byCase), byType: sorted(byType), parts: partLinks(units, partsOf, compare) };
 }
 
 /**
@@ -217,7 +228,7 @@ export function metricsOf(units: Unit[], partsOf?: (u: Unit) => string[]): Metri
  * from the parts running its code to the target's part. Recall and
  * precision compare the distinct edges of the reference and of the method.
  */
-function partLinks(units: Unit[], partsOf?: (u: Unit) => string[]): Metrics["parts"] {
+function partLinks(units: Unit[], partsOf: ((u: Unit) => string[]) | undefined, compare: "key" | "path"): Metrics["parts"] {
   const edges = (u: Unit, key: string | null) => {
     if (key === null || key === "NONE") return [];
     const [kind] = key.split(":");
@@ -225,7 +236,9 @@ function partLinks(units: Unit[], partsOf?: (u: Unit) => string[]): Metrics["par
     return (partsOf?.(u) ?? ["?"]).map((from) => `${from}->${target}:${kind}`);
   };
   const reference = new Set(units.filter((u) => u.inCStar).flatMap((u) => edges(u, u.label.target)));
-  const found = new Set(units.filter((u) => u.predicted).flatMap((u) => edges(u, u.target)));
+  const found = new Set(units.filter((u) => u.predicted).flatMap((u) => (u.alternatives.length > 0 ? u.alternatives : [u.target]).flatMap((k) => edges(u, k))));
+  // comparing paths only ignores the parts, so links between parts cannot be compared
+  if (compare === "path") return { reference: reference.size, found: found.size, correct: 0, recall: null, precision: null };
   const correct = [...found].filter((e) => reference.has(e)).length;
   return { reference: reference.size, found: found.size, correct, recall: ratio(correct, reference.size), precision: ratio(correct, found.size) };
 }

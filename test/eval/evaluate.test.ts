@@ -128,6 +128,26 @@ describe("evaluation against the reference", () => {
     ]);
   });
 
+  it("aligns a labelled call with a site of its own type when one line holds two calls", () => {
+    const candidates: SampleFrame["candidates"] = new Map([["r:a.ts:5", { stratum: "broker", split: "dev", component: "web" }]]);
+    const frame: SampleFrame = { candidates, sampled: ["r:a.ts:5"] };
+    const db = { ...site(5), id: "r:a.ts:5:20", col: 20, type: "db" as const };
+    const broker = { ...site(5), id: "r:a.ts:5:6", col: 26, type: "broker" as const };
+    const links = new Map([link(db, "linked", "coll:-:users@mongo"), link(broker, "linked", "event:-:user.nameChanged@*")]);
+    const { units } = alignUnits(frame, "dev", [label(5, { type: "broker", target: "event:-:user.nameChanged@*", caseNo: 1 })], [db, broker], links);
+    expect(units[0]).toMatchObject({ site: broker.id, correct: true });
+  });
+
+  it("weights strata by the lines labelled so far", () => {
+    const candidates: SampleFrame["candidates"] = new Map();
+    for (let i = 1; i <= 20; i++) candidates.set(`r:a.ts:${i}`, { stratum: "http", split: "dev", component: "web" });
+    const frame: SampleFrame = { candidates, sampled: ["r:a.ts:1", "r:a.ts:2", "r:a.ts:3", "r:a.ts:4"] };
+    const { units, pending } = alignUnits(frame, "dev", [label(1, { target: "http:GET:/a@api", caseNo: 1 }), label(2, { target: "NONE", reason: "external" })], [], new Map());
+    expect(pending).toBe(2);
+    // 20 candidates, 2 labelled: each labelled line stands for 10
+    expect(units.map((u) => u.weight)).toEqual([10, 10]);
+  });
+
   it("writes the site results and appends to the audit log", () => {
     const t = toy();
     const { units, pending } = alignUnits(t.frame, "dev", t.labels, t.sites, t.links);

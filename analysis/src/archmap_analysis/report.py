@@ -213,6 +213,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.full:
             summary["main"] = main_hypothesis(boot, args.full).__dict__
             without = parse_pairs(args.without)
+            unknown = set(without) - {"rules", "infra", "llm"}
+            if unknown:
+                raise SystemExit(f"--without takes rules=, infra= and llm= runs, not {', '.join(sorted(unknown))}")
             if without:
                 shares = json.loads(Path(args.shares).read_text()) if args.shares else None
                 summary["h1"] = hypothesis1(boot, args.full, without, shares).__dict__

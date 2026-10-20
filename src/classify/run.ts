@@ -1,6 +1,6 @@
 import type { TargetConfig } from "../config/schema.js";
 import { hashOf } from "../core/hash.js";
-import { countBy, matchingOf } from "../match/run.js";
+import { countBy, inputsOf, matchingOf } from "../match/run.js";
 import { type Db, getMeta, setMeta } from "../store/db.js";
 import { classifySite } from "./features.js";
 
@@ -42,5 +42,5 @@ export function runClassify(db: Db, config: TargetConfig): ClassifySummary {
 
 /** Whether the stored cases were computed from the current extraction, infrastructure and rules. */
 export function classificationCurrent(db: Db, config: TargetConfig): boolean {
-  return getMeta(db, "classify.key") === hashOf(matchingOf(db, config).inputs);
+  return getMeta(db, "classify.key") === hashOf(inputsOf(db, config));
 }

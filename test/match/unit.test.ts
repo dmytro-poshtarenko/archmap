@@ -224,8 +224,21 @@ describe("resolving sites", () => {
     const r = resolver([out, self, cfg], [api]);
     expect(r.resolve(out, ALL_SOURCES)).toMatchObject({ status: "none", reason: "external" });
     expect(r.resolve(self, ALL_SOURCES)).toMatchObject({ status: "none", reason: "intra" });
-    expect(r.resolve(cfg, ALL_SOURCES)).toMatchObject({ status: "none", reason: "external" });
+    // a configured base address the deployment does not give, and no route that fits: not linked, not called outside
+    expect(r.resolve(cfg, ALL_SOURCES)).toMatchObject({ status: "unresolved", reason: "config-host" });
     expect(classifySite(r, out).caseNo).toBeNull();
+  });
+});
+
+describe("base addresses from the environment", () => {
+  it("keeps the path prefix of each base address", () => {
+    const v2 = route("a:app.ts", "http", "/v2/orders", ["server"], null, "GET");
+    const call = site("w:a.ts", "broker", "request", lit("x"), ["web", "presence-service"]);
+    const http = { ...call, type: "http" as const, role: "request" as const, address: concat(env("API_URL"), lit("/orders")), method: lit("GET") };
+    const infra = { containers: [container("web", "web", { API_URL: "http://server:3000/v2" }), container("presence-service", "presence-service", { API_URL: "http://server:3000" }), container("server", "server")] };
+    const r = resolver([http], [v2], infra);
+    // one base gives /v2/orders, which the server declares; the other gives /orders, which nobody does
+    expect(r.resolve(http, ALL_SOURCES)).toMatchObject({ status: "linked", target: "http:GET:/v2/orders@server" });
   });
 });
 

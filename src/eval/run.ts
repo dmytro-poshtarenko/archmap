@@ -36,7 +36,8 @@ export function evaluateRun(opts: { method: Db; candidates: Db; labels: Db; run:
   const frame = sampleFrame(opts.candidates);
   const links = new Map(loadLinks(opts.method, opts.run).map((l) => [l.site, l]));
   // the baseline answers for places of its own (`cbm:<repo>:<path>:<line>`), not for the method's sites
-  const sites = [...loadSites(opts.method), ...placesOf([...links.keys()])];
+  // only sites the run answers for: another tool's places, or sites outside the run, must not take a unit
+  const sites = [...loadSites(opts.method), ...placesOf([...links.keys()])].filter((s) => links.has(s.id));
   if (links.size === 0) throw new Error(`run '${opts.run}' has no links; run \`archmap match\` first`);
   const { units, pending } = alignUnits(frame, opts.split, listLabels(opts.labels, opts.annotator), sites, links, opts.compare);
   const siteParts = new Map(sites.map((s) => [s.id, s.components]));
@@ -47,7 +48,7 @@ export function evaluateRun(opts: { method: Db; candidates: Db; labels: Db; run:
     return parts && parts.length > 0 ? parts : ["?"];
   };
   const run = opts.compare === "path" ? `${opts.run}@path` : opts.run;
-  return { run, split: opts.split, annotator: opts.annotator, units, pending, metrics: metricsOf(units, partsOf) };
+  return { run, split: opts.split, annotator: opts.annotator, units, pending, metrics: metricsOf(units, partsOf, opts.compare) };
 }
 
 /**
