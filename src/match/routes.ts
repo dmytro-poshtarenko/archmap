@@ -65,7 +65,8 @@ function toPathToRegexp8(raw: string[]): string {
 /**
  * How well a site's path fits a route, best first when compared with
  * `compareScores`; `weak` marks fits that need a guess (a run-time segment
- * against a literal one, an unknown tail), which never link on their own.
+ * against a literal one, an unknown tail) or that only a route without any
+ * literal segment gives (`/:path`, `/*`), and these never link on their own.
  */
 export interface PathFit {
   exact: boolean;
@@ -79,6 +80,13 @@ export interface PathFit {
  * comparison when the site path has run-time parts.
  */
 export function fitPath(site: SiteSegment[], siteText: string, route: RoutePattern): PathFit | null {
+  const fit = fitAnyPath(site, siteText, route);
+  // parameters and wildcards alone fit almost any address, so they cannot name the target
+  const generic = route.segments.every((s) => s.k === "param" || s.k === "splat");
+  return fit && generic ? { ...fit, weak: true } : fit;
+}
+
+function fitAnyPath(site: SiteSegment[], siteText: string, route: RoutePattern): PathFit | null {
   if (siteText === route.canonical && site.every((s) => s.k === "lit" || s.k === "any")) {
     const literal = route.segments.filter((s) => s.k === "lit").length;
     const params = route.segments.length - literal;

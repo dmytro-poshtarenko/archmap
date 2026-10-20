@@ -299,3 +299,17 @@ describe("free answers of the model", () => {
     expect(normaliseFree(free("http", "/api/v1/rooms.info", "server", "GET"), full)).toMatchObject({ key: "http:GET:/api/v1/rooms.info@server", invented: false });
   });
 });
+
+describe("generic routes", () => {
+  it("a route of parameters and wildcards alone links no call", () => {
+    const generic = ["/:path", "/*", "/:store/:fileId/:fileName?", "/"].map((t, i) => ({ ...route(`main:g${i}.ts`, "http", t, ["server"], null, "GET"), source: "llm" as const }));
+    const r = resolver([], generic);
+    for (const path of ["/healthz", "/api/v1/rooms.info", "/a/b/c", "/"]) {
+      const forms = httpForms(lit(path)).forms;
+      for (const g of generic) for (const f of forms) expect(fitPath(f.segments, f.text, r.patternOf(g.template))?.weak ?? true).toBe(true);
+    }
+    // a route with a literal segment still fits as before
+    const f = httpForms(lit("/file-upload/abc/x.png")).forms[0];
+    expect(f && fitPath(f.segments, f.text, routePattern("/file-upload/:id/*"))?.weak).toBe(false);
+  });
+});
