@@ -39,6 +39,14 @@
   `exceed_context_size_error` with the exact token count (checked live: a
   13,932-token prompt with `num_ctx` 2,048).
 - The provider then sends the prompt again with a window that fits.
+- Ollama can also refuse in plain text:
+  `request (98485 tokens) exceeds the available context size (256 tokens)`.
+  - It does this for its own check, and it raises a one-token window to 256.
+  - The text still gives the exact count, and the provider reads both forms.
+  - Before this was handled (found 2026-10-20), the exact count quietly fell
+    back to the estimate, which was 8.5k tokens short on numbered code.
+  - The refusal of the real request then stopped the H3 run after 10 of 90
+    variants. Nothing was cut: Ollama refused rather than truncated.
 - A prompt beyond the largest window (`maxCtx`, 131,072) is reported as
   `truncated-input` and gives no answer.
 

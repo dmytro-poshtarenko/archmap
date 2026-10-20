@@ -3,7 +3,7 @@ import { z } from "zod";
 import { cacheKey } from "../../src/llm/cache.js";
 import { LlmClient, repeatsOf } from "../../src/llm/client.js";
 import { loadTemplate, render, TEMPLATES } from "../../src/llm/prompts.js";
-import { OllamaProvider, windowFor } from "../../src/llm/providers/ollama.js";
+import { errorOf, OllamaProvider, windowFor } from "../../src/llm/providers/ollama.js";
 import { ReplayProvider } from "../../src/llm/providers/replay.js";
 import { decisionOf } from "../../src/llm/stats.js";
 import { chunksOf, filesForExtraction, RouteAnswer, routesFromAnswer, type SourceFile } from "../../src/llm/tasks/extractRoutes.js";
@@ -164,6 +164,25 @@ describe("the Ollama provider", () => {
     expect(windows[1]).toBe(windowFor(20000, 100, 131072));
     expect(windows[2]).toBeGreaterThan(windows[1] as number);
     expect(a.parsed).toEqual({ value: "ok" });
+  });
+
+  // Ollama 0.40.2 itself refuses in plain text, and raises a one-token window to 256.
+  // Read as an unknown error, the count fell back to the estimate (8.5k tokens short on
+  // numbered code), and the refusal of the real request stopped the H3 run.
+  it("reads Ollama's plain-text refusal: counts exactly and sizes the window", async () => {
+    const tokens = 98485;
+    const windows: number[] = [];
+    const fake = async (_url: string, payload: unknown) => {
+      const n = (payload as { options: { num_ctx: number } }).options.num_ctx;
+      windows.push(n);
+      if (n < tokens + 100) return { error: `request (${tokens} tokens) exceeds the available context size (${Math.max(256, n)} tokens), try increasing it` };
+      return { model: "qwen", message: { content: '{"value":"ok"}' }, done_reason: "stop", prompt_eval_count: tokens, eval_count: 20 };
+    };
+    const long = { ...request("x".repeat(30000)), maxTokens: 100 };
+    const a = await new OllamaProvider("qwen", { url: "http://x", seed: 1, numCtx: "auto", maxCtx: 131072, post: fake }).complete(long);
+    expect(windows).toEqual([1, windowFor(tokens, 100, 131072)]);
+    expect(a).toMatchObject({ parsed: { value: "ok" }, stopReason: "end_turn" });
+    expect(errorOf("model not found")).toEqual({ message: "model not found" });
   });
 
   it("reports a cut answer and an input beyond the largest window", async () => {

@@ -146,8 +146,10 @@ export class OllamaProvider implements LlmProvider {
 type OllamaError = { type?: string; message?: string; n_prompt_tokens?: number; n_ctx?: number };
 
 /**
- * Ollama's error field: an object, or a string that holds the JSON of the
- * underlying server's error (`{"error":{"type":"exceed_context_size_error",…}}`).
+ * Ollama's error field: an object, a string that holds the JSON of the
+ * underlying server's error (`{"error":{"type":"exceed_context_size_error",…}}`),
+ * or Ollama's own refusal in plain text, which still gives the exact count:
+ * `request (98485 tokens) exceeds the available context size (256 tokens), try increasing it`.
  */
 export function errorOf(field: ChatResponse["error"]): OllamaError | undefined {
   if (field === undefined || field === null) return undefined;
@@ -156,7 +158,8 @@ export function errorOf(field: ChatResponse["error"]): OllamaError | undefined {
     const parsed = JSON.parse(field) as { error?: OllamaError } | OllamaError;
     return typeof parsed === "object" && parsed !== null && "error" in parsed && parsed.error ? parsed.error : (parsed as OllamaError);
   } catch {
-    return { message: field };
+    const m = /request \((\d+) tokens\) exceeds the available context size \((\d+) tokens\)/.exec(field);
+    return m ? { type: "exceed_context_size_error", message: field, n_prompt_tokens: Number(m[1]), n_ctx: Number(m[2]) } : { message: field };
   }
 }
 
