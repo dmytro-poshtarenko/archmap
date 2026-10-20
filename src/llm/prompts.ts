@@ -35,4 +35,9 @@ export function templatesHash(refs: string[], root = toolRoot): string {
   return hashOf(refs.map((r) => readFileSync(join(root, "prompts", `${r}.md`), "utf8")));
 }
 
-export const TEMPLATES = { extract: "extract-routes@1", select: "resolve-select@1", free: "resolve-free@1", probe: "memo-probe@1" } as const;
+/**
+ * The templates in use. Each names every field and value of its answer: the
+ * cloud model is given the schema, but Ollama only constrains the decoding to
+ * it, so a local model learns the allowed values from the prompt alone.
+ */
+export const TEMPLATES = { extract: "extract-routes@2", select: "resolve-select@2", free: "resolve-free@2", probe: "memo-probe@2" } as const;

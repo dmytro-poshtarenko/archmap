@@ -23,6 +23,16 @@
 - `/api/chat` is called with `format` set to the JSON schema, temperature 0,
   seed 42 and `think: false`.
 - The window (`num_ctx`) is sized for each request.
+- The schema only constrains decoding; the model never sees it. So every
+  prompt names each field and value of its answer.
+  - Found on 2026-10-20 in the dev run with prompt version 1, which named the
+    kinds only in prose ("DDP methods").
+  - qwen3 answered `http` with `POST` for every Meteor method: 250 of 250
+    answers, 825 declarations, all `http`.
+  - Version 2 names the values. On the same files it gives `ddp-method`
+    (5 of 5) and keeps `http` for REST routes.
+  - A test checks that every template names the fields and enum values of its
+    schema.
 
 **Input is never cut silently.**
 - Ollama 0.40.2 refuses a prompt longer than the window: it returns

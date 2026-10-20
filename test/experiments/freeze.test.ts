@@ -6,6 +6,7 @@ import { dataLayout, toolRoot } from "../../src/core/paths.js";
 import { freeze, freezeProblems } from "../../src/experiments/freeze.js";
 import { checkFrozen } from "../../src/experiments/guards.js";
 import { saveLabel } from "../../src/labelling/labels.js";
+import { TEMPLATES } from "../../src/llm/prompts.js";
 import { openCandidates, openLabels } from "../../src/labelling/store.js";
 import { openDb } from "../../src/store/db.js";
 import { runInventory } from "../../src/workspace/inventory.js";
@@ -21,10 +22,7 @@ function rehearsal() {
   gitRepo(root, {
     "docs/labelling-guide.md": read("docs/labelling-guide.md"),
     "rules/generic@1.yaml": read("rules/generic@1.yaml"),
-    "prompts/extract-routes@1.md": read("prompts/extract-routes@1.md"),
-    "prompts/resolve-select@1.md": read("prompts/resolve-select@1.md"),
-    "prompts/resolve-free@1.md": read("prompts/resolve-free@1.md"),
-    "prompts/memo-probe@1.md": read("prompts/memo-probe@1.md"),
+    ...Object.fromEntries(Object.values(TEMPLATES).map((ref) => [`prompts/${ref}.md`, read(`prompts/${ref}.md`)])),
     "src/method.ts": "export const method = 1;\n",
     ".gitignore": "data/\n",
   });

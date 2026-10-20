@@ -2,12 +2,13 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { cacheKey } from "../../src/llm/cache.js";
 import { LlmClient, repeatsOf } from "../../src/llm/client.js";
-import { loadTemplate, render } from "../../src/llm/prompts.js";
+import { loadTemplate, render, TEMPLATES } from "../../src/llm/prompts.js";
 import { OllamaProvider, windowFor } from "../../src/llm/providers/ollama.js";
 import { ReplayProvider } from "../../src/llm/providers/replay.js";
 import { decisionOf } from "../../src/llm/stats.js";
-import { chunksOf, filesForExtraction, routesFromAnswer, type SourceFile } from "../../src/llm/tasks/extractRoutes.js";
-import { chosen, fragmentOf } from "../../src/llm/tasks/resolve.js";
+import { chunksOf, filesForExtraction, RouteAnswer, routesFromAnswer, type SourceFile } from "../../src/llm/tasks/extractRoutes.js";
+import { ProbeAnswer } from "../../src/llm/tasks/probe.js";
+import { chosen, FreeAnswer, fragmentOf, SelectAnswer } from "../../src/llm/tasks/resolve.js";
 import { BudgetExceededError, type LlmAnswer, type LlmProvider, type LlmRequest } from "../../src/llm/types.js";
 import { openDb } from "../../src/store/db.js";
 
@@ -39,10 +40,33 @@ class EchoProvider implements LlmProvider {
 
 describe("prompts", () => {
   it("load with their id and version and fill every placeholder", () => {
-    const t = loadTemplate("resolve-select@1");
+    const t = loadTemplate(TEMPLATES.select);
     expect(t.id).toBe("resolve-select");
     expect(render("{{a}} and {{b}}", { a: "x", b: "y" })).toBe("x and y");
     expect(() => render("{{missing}}", {})).toThrow(/missing/);
+  });
+
+  // Ollama constrains decoding to the schema without showing it to the model.
+  // Told only "DDP methods" in prose, qwen3 answered `http` for every
+  // Meteor method; naming the values in the prompt fixed it.
+  it("name every field and value of their answer", () => {
+    const wordsOf = (node: unknown): string[] => {
+      if (Array.isArray(node)) return node.flatMap(wordsOf);
+      if (node === null || typeof node !== "object") return [];
+      const o = node as { properties?: object; enum?: unknown[] };
+      const values = (o.enum ?? []).filter((v): v is string => typeof v === "string");
+      return [...Object.keys(o.properties ?? {}), ...values, ...Object.values(o).flatMap(wordsOf)];
+    };
+    const answers = [
+      [TEMPLATES.extract, RouteAnswer],
+      [TEMPLATES.select, SelectAnswer],
+      [TEMPLATES.free, FreeAnswer],
+      [TEMPLATES.probe, ProbeAnswer],
+    ] as const;
+    for (const [ref, schema] of answers) {
+      const system = loadTemplate(ref).system;
+      for (const word of new Set(wordsOf(z.toJSONSchema(schema)))) expect(system, `${ref} does not name ${word}`).toContain(`\`${word}\``);
+    }
   });
 });
 
