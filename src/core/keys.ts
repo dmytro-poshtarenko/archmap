@@ -15,7 +15,8 @@ export interface TargetKey {
   component: string;
 }
 
-const KEY = /^(http|ddp|action|event|coll|timer):([^:@\s]+):([^@\s]+)@([a-z0-9*][a-z0-9._-]*|\*)$/;
+/** The name may hold single spaces between words: job names are free text, as in `timer:-:Cleanup OEmbed cache@rocketchat`. */
+const KEY = /^(http|ddp|action|event|coll|timer):([^:@\s]+):([^@\s]+(?: [^@\s]+)*)@([a-z0-9*][a-z0-9._-]*|\*)$/;
 const HTTP_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "*"]);
 
 /**

@@ -45,6 +45,13 @@ describe("target keys", () => {
     }
   });
 
+  it("allow single spaces inside a name, as job names have", () => {
+    expect(parseTargetKey("timer:-:Prune old messages by retention policy@rocketchat")).toMatchObject({ name: "Prune old messages by retention policy" });
+    for (const key of ["timer:-: NPS@rocketchat", "timer:-:NPS @rocketchat", "timer:-:Prune  old@rocketchat"]) {
+      expect(parseTargetKey(key)).toHaveProperty("error");
+    }
+  });
+
   it("compare HTTP routes regardless of parameter names", () => {
     expect(canonicalTargetKey("http:GET:/api/v1/livechat/agents/:uid/departments@rocketchat")).toBe(
       canonicalTargetKey("http:GET:/api/v1/livechat/agents/:agentId/departments@rocketchat"),
