@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { caseOf, classifySite } from "../../src/classify/features.js";
 import type { AbstractValue, CallSite, RouteDecl } from "../../src/core/types.js";
-import { alts, concat, dyn, env, lit, unknown } from "../../src/extract/value.js";
+import { alts, concat, dyn, env, lit, setting, unknown } from "../../src/extract/value.js";
 import type { Container, GatewayRule, InfraFacts } from "../../src/infra/model.js";
 import { httpForms } from "../../src/match/address.js";
 import { jaccard, levenshtein, rankCandidates, tokens } from "../../src/match/candidates.js";
@@ -142,7 +142,7 @@ const container = (name: string, component: string, envVars: Record<string, stri
   env: envVars,
 });
 
-function resolver(sites: CallSite[], routes: RouteDecl[], infra: Partial<InfraFacts> = {}): Resolver {
+function resolver(sites: CallSite[], routes: RouteDecl[], infra: Partial<InfraFacts> = {}, extra: Partial<ResolverInput> = {}): Resolver {
   const input: ResolverInput = {
     sites,
     routes,
@@ -156,6 +156,7 @@ function resolver(sites: CallSite[], routes: RouteDecl[], infra: Partial<InfraFa
     ],
     profileEnv: {},
     options: { guards: [{ call: "isRunningMs()", env: "TRANSPORTER", pattern: "^(?:nats|TCP)" }], transports: [{ type: "ddp", path: "/websocket" }] },
+    ...extra,
   };
   return new Resolver(input);
 }
@@ -334,5 +335,15 @@ describe("parts that run a file", () => {
     expect(make({}).componentsOf(call, ALL_SOURCES)).toEqual(["presence-service", "server"]);
     // without the infrastructure the profile is unknown, so both parts stay
     expect(make({ TRANSPORTER: "nats://nats:4222" }).componentsOf(call, { ...ALL_SOURCES, env: false })).toEqual(["presence-service", "server"]);
+  });
+});
+
+describe("settings", () => {
+  it("take the registered default until the deployment overrides it", () => {
+    const poll = site("main:server/cloud.ts", "http", "request", concat(setting("Cloud_Url"), lit("/api/v2/register/workspace/poll")), ["server"], "GET");
+    const withDefault = resolver([poll], [], {}, { settingDefaults: { Cloud_Url: "https://cloud.rocket.chat" } });
+    expect(withDefault.resolve(poll, ALL_SOURCES)).toMatchObject({ status: "none", reason: "external" });
+    // without the default the address stays open, as before
+    expect(resolver([poll], []).resolve(poll, ALL_SOURCES)).toMatchObject({ status: "unresolved", reason: "config-host" });
   });
 });

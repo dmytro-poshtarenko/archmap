@@ -14,7 +14,7 @@ import { Lifter } from "./lift.js";
 import { fileId, Program, type ProgramFile } from "./program.js";
 import { loadRules, type RuleSet } from "./rules.js";
 import { usageOfFiles } from "./usage.js";
-import { display } from "./value.js";
+import { display, literalOf } from "./value.js";
 
 /** Wrapper depth for inlining helper functions while evaluating an address. */
 const EVAL_DEPTH = 8;
@@ -60,10 +60,11 @@ export function runExtraction(
     const previous = JSON.parse(getMeta(db, "extract.stats") ?? "{}") as ExtractStats;
     return { ...previous, skipped: true };
   }
-  const { sites, routes, stats, usage, guards } = extractAll(program, rules, config.rules.liftDepth);
+  const { sites, routes, stats, usage, guards, settingDefaults } = extractAll(program, rules, config.rules.liftDepth);
   writeSites(db, sites);
   writeRoutes(db, routes);
   writeUsage(db, usage, guards);
+  setMeta(db, "extract.settingDefaults", JSON.stringify(settingDefaults));
   setMeta(db, "extract.key", key);
   setMeta(db, "extract.rulesHash", rules.hash);
   setMeta(db, "extract.stats", JSON.stringify(stats));
@@ -75,7 +76,15 @@ export function extractAll(
   program: Program,
   rules: RuleSet,
   liftDepth: number,
-): { sites: CallSite[]; routes: RouteDecl[]; stats: ExtractStats; usage: Map<string, string[]>; guards: Map<string, Record<string, string[]>> } {
+): {
+  sites: CallSite[];
+  routes: RouteDecl[];
+  stats: ExtractStats;
+  usage: Map<string, string[]>;
+  guards: Map<string, Record<string, string[]>>;
+  /** Literal defaults of the settings the code registers, for matching. */
+  settingDefaults: Record<string, string>;
+} {
   const t0 = performance.now();
   const files = program.codeFiles().map((f) => fileId(f.repo, f.path));
   for (const id of files) program.source(id);
@@ -110,7 +119,12 @@ export function extractAll(
     seconds: { parse: round(t1 - t0), calls: round(t2 - t1), lift: round(t3 - t2), routes: round(t4 - t3), total: round(t4 - t0) },
     rssMb: Math.round(process.memoryUsage().rss / 2 ** 20),
   };
-  return { sites, routes, stats, usage, guards };
+  const settingDefaults: Record<string, string> = {};
+  for (const [key, value] of tables.get("settings.defaults") ?? []) {
+    const v = literalOf(value);
+    if (v !== undefined) settingDefaults[key] = v;
+  }
+  return { sites, routes, stats, usage, guards, settingDefaults };
 }
 
 function toSites(program: Program, placed: ReturnType<Lifter["place"]>, usage: Map<string, string[]>): CallSite[] {

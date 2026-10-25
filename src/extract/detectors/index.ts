@@ -2,6 +2,7 @@ import { expressRoutes } from "./express.js";
 import { rocketchatApi } from "./rocketchat-api.js";
 import { rocketchatModels } from "./rocketchat-models.js";
 import { rocketchatServices } from "./rocketchat-services.js";
+import { rocketchatSettings } from "./rocketchat-settings.js";
 import type { Detector } from "./types.js";
 
 /** Code detectors by id, as packs name them. */
@@ -10,4 +11,5 @@ export const DETECTORS: Record<string, Detector> = {
   "rocketchat-api": rocketchatApi,
   "rocketchat-services": rocketchatServices,
   "rocketchat-models": rocketchatModels,
+  "rocketchat-settings": rocketchatSettings,
 };

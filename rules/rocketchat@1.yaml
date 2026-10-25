@@ -5,7 +5,7 @@ id: rocketchat
 version: 1
 description: Rocket.Chat REST, DDP, broker, MongoDB and cron APIs; REST router, service and model registry rules
 
-detectors: [rocketchat-api, rocketchat-services, rocketchat-models]
+detectors: [rocketchat-api, rocketchat-services, rocketchat-models, rocketchat-settings]
 
 # Client and broker libraries: their own calls are no sites; the application
 # calls into them are.

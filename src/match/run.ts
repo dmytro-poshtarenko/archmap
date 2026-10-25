@@ -49,6 +49,7 @@ export function matchingOf(db: Db, config: TargetConfig): Matching {
     profileEnv: config.infra.env,
     options: rules.matching,
     loadGuards: loadUsageGuards(db),
+    settingDefaults: JSON.parse(getMeta(db, "extract.settingDefaults") ?? "{}") as Record<string, string>,
   });
   return { resolver, sites, inputs: inputsOf(db, config, routes, rules.hash) };
 }

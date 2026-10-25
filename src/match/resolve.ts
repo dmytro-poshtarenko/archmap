@@ -60,6 +60,8 @@ export interface ResolverInput {
   options: MatchingOptions;
   /** By `<repo>:<path>`: parts that reach the file only through loads under a condition, with the conditions. */
   loadGuards?: Map<string, Record<string, string[]>>;
+  /** Defaults of the settings the code registers: the value until the deployment overrides it. */
+  settingDefaults?: Record<string, string>;
 }
 
 interface Candidate {
@@ -337,12 +339,17 @@ export class Resolver {
     return this.gatewayRules.length > 0 && site.components.some((c) => this.kinds.get(c) === "client");
   }
 
-  /** Values of an environment variable or a setting in the containers running the site, or the profile's. */
+  /**
+   * Values of an environment variable or a setting in the containers running
+   * the site, or the profile's; a setting nobody overrides keeps the default
+   * the code registers.
+   */
   private valuesOf(site: CallSite, kind: "env" | "setting", key: string): string[] {
     const name = kind === "env" ? key : `OVERWRITE_SETTING_${key}`;
     const values = new Set<string>();
     for (const c of site.components) for (const container of this.containersOf.get(c) ?? []) if (container.env[name]) values.add(container.env[name] as string);
     if (values.size === 0 && this.input.profileEnv[name]) values.add(this.input.profileEnv[name] as string);
+    if (values.size === 0 && kind === "setting" && this.input.settingDefaults?.[key]) values.add(this.input.settingDefaults[key] as string);
     return [...values].sort();
   }
 

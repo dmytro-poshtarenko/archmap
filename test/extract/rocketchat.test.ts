@@ -74,6 +74,15 @@ const FILES: Record<string, string> = {
     "  private async purge(uid: string) { await Users.trashFindOneById(uid); }",
     "}",
   ].join("\n"),
+  "main:apps/meteor/server/settings/cloud.ts": [
+    "declare const settingsRegistry: any;",
+    "declare const list: { add(a: string, b: string, o: object): void };",
+    "void settingsRegistry.addGroup('Cloud', async function (this: any) {",
+    "  await this.add('Cloud_Url', 'https://cloud.rocket.chat', { type: 'string', hidden: true });",
+    "});",
+    "void settingsRegistry.add('Nps_Url', `https://nps.rocket.chat`, { type: 'string' });",
+    "list.add('not_a_setting', 'x', { other: 1 });",
+  ].join("\n"),
   "main:apps/meteor/server/services/startup.ts": [
     "import { api } from '@rocket.chat/core-services';",
     "import { TeamService } from './team';",
@@ -211,6 +220,11 @@ describe("Rocket.Chat rule pack", () => {
     expect(usage.get("main:ee/packages/presence/src/helpers.ts")).toEqual({ components: ["presence-service", "rocketchat"], guards: { rocketchat: ["!isRunningMs()"] } });
     // its own service loads it unconditionally, and the server's own code needs no condition
     expect(usage.get("main:apps/meteor/server/services/team.ts")).toEqual({ components: ["rocketchat"], guards: {} });
+  });
+
+  it("reads the defaults of the settings the code registers", () => {
+    expect(extracted.settingDefaults).toMatchObject({ Cloud_Url: "https://cloud.rocket.chat", Nps_Url: "https://nps.rocket.chat" });
+    expect(extracted.settingDefaults).not.toHaveProperty("not_a_setting");
   });
 
   it("finds events published and subscribed, but not those that stay in the process", () => {
