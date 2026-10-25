@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { extractAll } from "../../src/extract/run.js";
 import { loadRules } from "../../src/extract/rules.js";
+import { usageOfFiles } from "../../src/extract/usage.js";
 import { display, hopKinds } from "../../src/extract/value.js";
 import { programFrom } from "./helpers.js";
 
@@ -70,6 +71,7 @@ const FILES: Record<string, string> = {
     "    await Presence.setStatus(uid, 'online');",
     "  }",
     "  private secret() {}",
+    "  private async purge(uid: string) { await Users.trashFindOneById(uid); }",
     "}",
   ].join("\n"),
   "main:apps/meteor/server/services/startup.ts": [
@@ -92,6 +94,11 @@ const FILES: Record<string, string> = {
     "  protected name = 'presence';",
     "  async setStatus(uid: string, status: string) { await Rooms.updateOne({ uid }, { status }); await Team.create(uid); }",
     "}",
+    "export { away } from './helpers';",
+  ].join("\n"),
+  "main:ee/packages/presence/src/helpers.ts": [
+    "import { Presence } from '@rocket.chat/core-services';",
+    "export const away = (uid: string) => Presence.setStatus(uid, 'away');",
   ].join("\n"),
   "main:ee/apps/presence-service/src/service.ts": [
     "import { api } from '@rocket.chat/core-services';",
@@ -164,6 +171,8 @@ const extracted = (() => {
   return extractAll(program, loadRules(["generic@1", "meteor@1", "rocketchat@1"]), 3);
 })();
 
+const usage = usageOfFiles(programFrom(FILES, COMPONENTS));
+
 const site = (at: string) => {
   const s = extracted.sites.filter((x) => `${x.repo}:${x.path}:${x.line}` === at);
   return s.map((x) => ({ detector: x.detector, method: x.method ? display(x.method) : null, address: display(x.address), hops: hopKinds(x.address), components: x.components }));
@@ -191,8 +200,17 @@ describe("Rocket.Chat rule pack", () => {
       { detector: "rocketchat.model-call", method: null, address: "users", hops: ["const", "import"], components: ["rocketchat"] },
     ]);
     expect(site("main:apps/meteor/server/services/team.ts:8")[0]).toMatchObject({ detector: "rocketchat.service-call", address: "presence.setStatus" });
+    // deleted records of every model live in one collection
+    expect(site("main:apps/meteor/server/services/team.ts:11")[0]).toMatchObject({ detector: "rocketchat.model-trash-call", address: "rocketchat__trash" });
     expect(site("main:ee/packages/presence/src/index.ts:5").map((s) => s.address).sort()).toEqual(["rocketchat_room", "team.create"]);
     expect(site("main:ee/packages/presence/src/index.ts:5")[0]?.components).toEqual(["presence-service", "rocketchat"]);
+  });
+
+  it("keeps the condition under which a part loads a package: the server loads presence only when not in microservices", () => {
+    // the server reaches the package only through `if (!isRunningMs()) await import('@rocket.chat/presence')`
+    expect(usage.get("main:ee/packages/presence/src/helpers.ts")).toEqual({ components: ["presence-service", "rocketchat"], guards: { rocketchat: ["!isRunningMs()"] } });
+    // its own service loads it unconditionally, and the server's own code needs no condition
+    expect(usage.get("main:apps/meteor/server/services/team.ts")).toEqual({ components: ["rocketchat"], guards: {} });
   });
 
   it("finds events published and subscribed, but not those that stay in the process", () => {

@@ -313,3 +313,26 @@ describe("generic routes", () => {
     expect(f && fitPath(f.segments, f.text, routePattern("/file-upload/:id/*"))?.weak).toBe(false);
   });
 });
+
+describe("parts that run a file", () => {
+  it("drop a part that loads the file only under a condition the profile makes false", () => {
+    const call = site("main:pkg/helpers.ts", "broker", "request", lit("presence.setStatus"), ["presence-service", "server"]);
+    const make = (profileEnv: Record<string, string>) =>
+      new Resolver({
+        sites: [call],
+        routes: [],
+        infra: { containers: [], rules: [], warnings: [] },
+        components: [
+          { id: "server", kind: "service", aliases: [] },
+          { id: "presence-service", kind: "service", aliases: ["presence"] },
+        ],
+        profileEnv,
+        options: { guards: [{ call: "isRunningMs()", env: "TRANSPORTER", pattern: "^(?:nats|TCP)" }], transports: [{ type: "ddp", path: "/websocket" }] },
+        loadGuards: new Map([["main:pkg/helpers.ts", { server: ["!isRunningMs()"] }]]),
+      });
+    expect(make({ TRANSPORTER: "nats://nats:4222" }).componentsOf(call, ALL_SOURCES)).toEqual(["presence-service"]);
+    expect(make({}).componentsOf(call, ALL_SOURCES)).toEqual(["presence-service", "server"]);
+    // without the infrastructure the profile is unknown, so both parts stay
+    expect(make({ TRANSPORTER: "nats://nats:4222" }).componentsOf(call, { ...ALL_SOURCES, env: false })).toEqual(["presence-service", "server"]);
+  });
+});

@@ -13,7 +13,7 @@ import { Evaluator } from "./evaluate.js";
 import { Lifter } from "./lift.js";
 import { fileId, Program, type ProgramFile } from "./program.js";
 import { loadRules, type RuleSet } from "./rules.js";
-import { componentsOfFiles } from "./usage.js";
+import { usageOfFiles } from "./usage.js";
 import { display } from "./value.js";
 
 /** Wrapper depth for inlining helper functions while evaluating an address. */
@@ -60,10 +60,10 @@ export function runExtraction(
     const previous = JSON.parse(getMeta(db, "extract.stats") ?? "{}") as ExtractStats;
     return { ...previous, skipped: true };
   }
-  const { sites, routes, stats, usage } = extractAll(program, rules, config.rules.liftDepth);
+  const { sites, routes, stats, usage, guards } = extractAll(program, rules, config.rules.liftDepth);
   writeSites(db, sites);
   writeRoutes(db, routes);
-  writeUsage(db, usage);
+  writeUsage(db, usage, guards);
   setMeta(db, "extract.key", key);
   setMeta(db, "extract.rulesHash", rules.hash);
   setMeta(db, "extract.stats", JSON.stringify(stats));
@@ -75,11 +75,13 @@ export function extractAll(
   program: Program,
   rules: RuleSet,
   liftDepth: number,
-): { sites: CallSite[]; routes: RouteDecl[]; stats: ExtractStats; usage: Map<string, string[]> } {
+): { sites: CallSite[]; routes: RouteDecl[]; stats: ExtractStats; usage: Map<string, string[]>; guards: Map<string, Record<string, string[]>> } {
   const t0 = performance.now();
   const files = program.codeFiles().map((f) => fileId(f.repo, f.path));
   for (const id of files) program.source(id);
-  const usage = componentsOfFiles(program);
+  const fileUsage = usageOfFiles(program);
+  const usage = new Map([...fileUsage].map(([id, u]) => [id, u.components]));
+  const guards = new Map([...fileUsage].filter(([, u]) => Object.keys(u.guards).length > 0).map(([id, u]) => [id, u.guards]));
   const t1 = performance.now();
 
   const evaluator = new Evaluator(program, { maxDepth: EVAL_DEPTH, valueSources: rules.valueSources });
@@ -108,7 +110,7 @@ export function extractAll(
     seconds: { parse: round(t1 - t0), calls: round(t2 - t1), lift: round(t3 - t2), routes: round(t4 - t3), total: round(t4 - t0) },
     rssMb: Math.round(process.memoryUsage().rss / 2 ** 20),
   };
-  return { sites, routes, stats, usage };
+  return { sites, routes, stats, usage, guards };
 }
 
 function toSites(program: Program, placed: ReturnType<Lifter["place"]>, usage: Map<string, string[]>): CallSite[] {
@@ -208,15 +210,24 @@ function writeSites(db: Db, sites: CallSite[]): void {
   })();
 }
 
-function writeUsage(db: Db, usage: Map<string, string[]>): void {
-  const insert = db.prepare("INSERT INTO file_usage(repo, path, components) VALUES (?, ?, ?)");
+function writeUsage(db: Db, usage: Map<string, string[]>, guards: Map<string, Record<string, string[]>>): void {
+  const insert = db.prepare("INSERT INTO file_usage(repo, path, components, guards) VALUES (?, ?, ?, ?)");
   db.transaction(() => {
     db.exec("DELETE FROM file_usage");
     for (const [id, components] of usage) {
       const at = id.indexOf(":");
-      insert.run(id.slice(0, at), id.slice(at + 1), JSON.stringify(components));
+      insert.run(id.slice(0, at), id.slice(at + 1), JSON.stringify(components), JSON.stringify(guards.get(id) ?? {}));
     }
   })();
+}
+
+/**
+ * For each code file some part reaches only through modules loaded under a
+ * condition: that part and the conditions, by `<repo>:<path>`.
+ */
+export function loadUsageGuards(db: Db): Map<string, Record<string, string[]>> {
+  const rows = db.prepare("SELECT repo, path, guards FROM file_usage WHERE guards <> '{}'").all() as Array<{ repo: string; path: string; guards: string }>;
+  return new Map(rows.map((r) => [`${r.repo}:${r.path}`, JSON.parse(r.guards) as Record<string, string[]>]));
 }
 
 /** Parts running each code file, by `<repo>:<path>`. */

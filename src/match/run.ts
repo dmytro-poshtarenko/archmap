@@ -2,7 +2,7 @@ import type { TargetConfig } from "../config/schema.js";
 import { hashOf } from "../core/hash.js";
 import { toolRoot } from "../core/paths.js";
 import type { CallSite, RouteDecl } from "../core/types.js";
-import { loadRoutes, loadSites } from "../extract/run.js";
+import { loadRoutes, loadSites, loadUsageGuards } from "../extract/run.js";
 import { loadRules } from "../extract/rules.js";
 import { loadInfra } from "../infra/index.js";
 import { type Db, getMeta } from "../store/db.js";
@@ -48,6 +48,7 @@ export function matchingOf(db: Db, config: TargetConfig): Matching {
     components: config.components,
     profileEnv: config.infra.env,
     options: rules.matching,
+    loadGuards: loadUsageGuards(db),
   });
   return { resolver, sites, inputs: inputsOf(db, config, routes, rules.hash) };
 }

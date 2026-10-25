@@ -136,7 +136,7 @@ export interface RuleSet {
 export class RulesError extends Error {}
 
 /** Version of the extraction engine itself; bumped whenever its behaviour changes. */
-export const ENGINE_VERSION = 2;
+export const ENGINE_VERSION = 3;
 
 export function loadRules(refs: string[], root = toolRoot): RuleSet {
   const bindings: Binding[] = [];

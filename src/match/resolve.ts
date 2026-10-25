@@ -58,6 +58,8 @@ export interface ResolverInput {
   /** Environment of the deployment profile (`infra.env`), under the containers' own. */
   profileEnv: Record<string, string>;
   options: MatchingOptions;
+  /** By `<repo>:<path>`: parts that reach the file only through loads under a condition, with the conditions. */
+  loadGuards?: Map<string, Record<string, string[]>>;
 }
 
 interface Candidate {
@@ -197,22 +199,36 @@ export class Resolver {
   }
 
   /**
-   * Parts that run a site. Code of a broker service class runs where the
-   * service is registered, so a registration the deployment switches off
-   * (`if (!isRunningMs())`) removes that part; the import graph alone keeps it.
+   * Parts that run a site. The import graph alone keeps every part that loads
+   * the file, so the deployment narrows it:
+   * - code of a broker service class runs where the service is registered, so
+   *   a registration the profile switches off (`if (!isRunningMs())`) removes that part;
+   * - a part that loads the file only under conditions the profile makes false
+   *   (`if (!isRunningMs()) await import('@rocket.chat/authorization')`) does not run it.
    */
   componentsOf(site: CallSite, sources: Sources): string[] {
-    const regs = this.registrationsByFile.get(`${site.repo}:${site.path}`);
-    if (!regs) return site.components;
-    const running = new Set<string>();
-    for (const reg of regs) {
-      for (const c of reg.components) {
-        if (sources.env && !this.deployed(c)) continue;
-        if (evaluateGuard(reg.guard, sources.env ? this.envOf(c) : null, this.input.options.guards) !== false) running.add(c);
+    const file = `${site.repo}:${site.path}`;
+    let components = site.components;
+    const regs = this.registrationsByFile.get(file);
+    if (regs) {
+      const running = new Set<string>();
+      for (const reg of regs) {
+        for (const c of reg.components) {
+          if (sources.env && !this.deployed(c)) continue;
+          if (evaluateGuard(reg.guard, sources.env ? this.envOf(c) : null, this.input.options.guards) !== false) running.add(c);
+        }
       }
+      const kept = components.filter((c) => running.has(c));
+      if (kept.length > 0) components = kept;
     }
-    const kept = site.components.filter((c) => running.has(c));
-    return kept.length > 0 ? kept : site.components;
+    const loads = this.input.loadGuards?.get(file);
+    if (loads) {
+      const holds = (c: string) =>
+        loads[c] === undefined || loads[c].some((g) => evaluateGuard(g, sources.env ? this.envOf(c) : null, this.input.options.guards) !== false);
+      const kept = components.filter(holds);
+      if (kept.length > 0) components = kept;
+    }
+    return components;
   }
 
   // HTTP ----------------------------------------------------------------------------------------

@@ -121,6 +121,13 @@ bindings:
     role: subscribe
     callee: { receiver: any, members: [onEvent] }
     address: { arg: 0 }
+  # Every model archives deleted records in one collection (packages/models/src/models/Trash.ts):
+  # Messages.trashFindDeletedAfter() reads rocketchat__trash, not the model's own collection
+  - id: model-trash-call
+    type: db
+    role: access
+    callee: { instance: model-proxy, members: ["trash\\w*"] }
+    address: { value: rocketchat__trash }
   # MongoDB through the model proxies: Users.findOneById() reads the collection users
   - id: model-call
     type: db

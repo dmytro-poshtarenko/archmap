@@ -230,4 +230,13 @@ export const migrations: Migration[] = [
       );
     `,
   },
+  {
+    version: 6,
+    name: "load conditions",
+    sql: `
+      -- For a part that reaches a file only through modules loaded under a condition
+      -- (if (!isRunningMs()) await import(...)): that part and the conditions, JSON {part: [condition]}.
+      ALTER TABLE file_usage ADD COLUMN guards TEXT NOT NULL DEFAULT '{}';
+    `,
+  },
 ];
