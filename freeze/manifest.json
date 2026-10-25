@@ -1,0 +1,43 @@
+{
+  "tag": "freeze-1",
+  "commit": "f1b88f2509a019186050323c16f10b1ac28069c6",
+  "configHash": "d03aaa7b83dccc0a90670b640577660a2749e67a9c53479c1480273470fd1c7f",
+  "createdAt": "2026-10-25T17:35:29.841Z",
+  "engineVersion": 3,
+  "rulesHash": "b1f045d1ec2a78f02fc702b78e379902117687a50f2a2648a00b836a118f7241",
+  "promptsHash": "9b05ea059b357d3d62d6e9367a9fdfff115d7feb3aa610bca99290bdfebfce54",
+  "templates": [
+    "extract-routes@2",
+    "resolve-select@2",
+    "resolve-free@2",
+    "memo-probe@2"
+  ],
+  "models": {
+    "cloud": "claude-opus-5-5",
+    "cloudChannel": "cli",
+    "local": "qwen3:30b-a3b-instruct-2507-q4_K_M"
+  },
+  "chunking": {
+    "local": true,
+    "cloud": false,
+    "maxTokens": 6000
+  },
+  "guide": "1.1+a65d7cbd",
+  "predictedShares": {
+    "rules": 0.9705362675084969,
+    "infra": 0.029463732491503133,
+    "llm": 0,
+    "units": 201
+  },
+  "devReport": {
+    "path": "/Users/dmytro-poshtarenko/Projects/magister-diplom/data/reports/rocketchat/dev/summary.json",
+    "sha256": "7b7bce9b9582bf61ac5e347c2b93b676b0e5642f4f98c80745ef4cec40fe9bb2"
+  },
+  "h3Decision": {
+    "path": "/Users/dmytro-poshtarenko/Projects/magister-diplom/data/out/rocketchat/h3/decision.json",
+    "splitFilesFor": {
+      "claude-opus-5-5": false,
+      "qwen3:30b-a3b-instruct-2507-q4_K_M": true
+    }
+  }
+}
