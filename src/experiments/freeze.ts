@@ -5,6 +5,7 @@ import type { LoadedConfig } from "../config/load.js";
 import type { DataLayout } from "../core/paths.js";
 import { sampleFrame } from "../eval/run.js";
 import { ENGINE_VERSION, loadRules } from "../extract/rules.js";
+import { guideVersion } from "../labelling/guide.js";
 import { caseCounts, openCandidates } from "../labelling/store.js";
 import { templatesHash, TEMPLATES } from "../llm/prompts.js";
 import { git, isClean } from "../workspace/git.js";
@@ -19,7 +20,7 @@ export interface FreezeManifest {
   rulesHash: string;
   promptsHash: string;
   templates: string[];
-  models: { cloud: string; local: string };
+  models: { cloud: string; cloudChannel: "api" | "cli"; local: string };
   chunking: { local: boolean; cloud: boolean; maxTokens: number };
   guide: string;
   /** Hypothesis 1: share of the recoverable links (cases 1–7) each component alone resolves, weighted by strata. */
@@ -108,7 +109,8 @@ export function freeze(input: FreezeInput): { manifest: FreezeManifest; digest: 
   const report = join(layout.root, "reports", target, "dev", "summary.json");
   const decisionPath = join(layout.root, "out", target, "h3", "decision.json");
   const decision = JSON.parse(readFileSync(decisionPath, "utf8")) as { splitFilesFor: Record<string, boolean> };
-  const guide = /Версія:\s*([\d.]+)/.exec(readFileSync(join(root, "docs", "labelling-guide.md"), "utf8"))?.[1] ?? "unknown";
+  // as every label records it, so the labels can be checked against the frozen guide
+  const guide = guideVersion(join(root, "docs", "labelling-guide.md"));
   const templates = Object.values(TEMPLATES);
   const manifest: FreezeManifest = {
     tag,
@@ -119,7 +121,7 @@ export function freeze(input: FreezeInput): { manifest: FreezeManifest; digest: 
     rulesHash: loadRules(config.rules.packs, root).hash,
     promptsHash: templatesHash(templates, root),
     templates,
-    models: { cloud: config.llm.cloud.model, local: config.llm.local.model },
+    models: { cloud: config.llm.cloud.model, cloudChannel: config.llm.cloud.channel, local: config.llm.local.model },
     chunking: config.llm.chunking,
     guide,
     predictedShares: predictedShares(input),
@@ -141,7 +143,7 @@ export function digestOf(m: FreezeManifest): string {
     `Method frozen: ${m.tag} (${m.createdAt})`,
     `Commit of the method: ${m.commit}`,
     `Config ${m.configHash.slice(0, 12)}, rules ${m.rulesHash.slice(0, 12)}, prompts ${m.promptsHash.slice(0, 12)}, extraction engine v${m.engineVersion}, labelling guide v${m.guide}`,
-    `Models: ${m.models.cloud} (cloud), ${m.models.local} (local); file splitting: cloud ${m.chunking.cloud ? "on" : "off"}, local ${m.chunking.local ? "on" : "off"}`,
+    `Models: ${m.models.cloud} (cloud, ${m.models.cloudChannel === "cli" ? "through Claude Code on a subscription" : "through the API"}), ${m.models.local} (local); file splitting: cloud ${m.chunking.cloud ? "on" : "off"}, local ${m.chunking.local ? "on" : "off"}`,
     `Hypothesis 1, predicted drop of recall R1-7 without each component (${m.predictedShares.units} labelled test units): rules ${pct(m.predictedShares.rules)}, infrastructure ${pct(m.predictedShares.infra)}, language model ${pct(m.predictedShares.llm)}`,
   ].join("\n");
 }

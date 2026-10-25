@@ -15,9 +15,10 @@ export function concurrencyOf(choice: ModelChoice): number {
 }
 
 /**
- * The provider of a model choice: `local` (Ollama), `cloud` (Claude through
- * the API), `cloud-cli` (the same Claude through Claude Code on the user's
- * subscription), or the recorded answers of one of them only.
+ * The provider of a model choice: `local` (Ollama), `cloud` (Claude, through
+ * the channel the config names), `cloud-cli` (Claude through Claude Code on
+ * the user's subscription, whatever the config says), or the recorded
+ * answers of one of them only.
  */
 export function providerOf(config: TargetConfig, choice: ModelChoice, db: Db): LlmProvider {
   const { local, cloud } = config.llm;
@@ -25,6 +26,7 @@ export function providerOf(config: TargetConfig, choice: ModelChoice, db: Db): L
     case "local":
       return new OllamaProvider(local.model, { url: local.url, seed: local.seed, numCtx: local.numCtx, maxCtx: local.maxCtx });
     case "cloud":
+      if (cloud.channel === "cli") return new ClaudeCliProvider(cloud.model);
       if (!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN) {
         throw new Error("the cloud model needs ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN) in the environment");
       }
@@ -34,7 +36,7 @@ export function providerOf(config: TargetConfig, choice: ModelChoice, db: Db): L
     case "replay-local":
       return new ReplayProvider(db, { provider: "ollama", model: local.model });
     case "replay-cloud":
-      return new ReplayProvider(db, { provider: "anthropic", model: cloud.model });
+      return new ReplayProvider(db, { provider: cloud.channel === "cli" ? "claude-code" : "anthropic", model: cloud.model });
     case "replay-cloud-cli":
       return new ReplayProvider(db, { provider: "claude-code", model: cloud.model });
   }

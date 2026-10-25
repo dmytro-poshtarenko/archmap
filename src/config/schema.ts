@@ -68,6 +68,8 @@ export const LlmConfig = z.strictObject({
   cloud: z
     .strictObject({
       model: z.string().default("claude-opus-5-5"),
+      /** How the cloud model is reached: the API with a key, or Claude Code in print mode on a subscription. */
+      channel: z.enum(["api", "cli"]).default("api"),
       effort: z
         .strictObject({ extract: Effort.default("medium"), select: Effort.default("low"), free: Effort.default("medium"), probe: Effort.default("low") })
         .prefault({}),

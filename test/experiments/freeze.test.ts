@@ -81,6 +81,10 @@ describe("freezing the method", () => {
     for (const share of [manifest.predictedShares.rules, manifest.predictedShares.infra, manifest.predictedShares.llm]) expect(share).toBeCloseTo(1 / 3);
     expect(manifest.predictedShares.units).toBe(3);
     expect(digest).toMatch(/rules 33\.3 %, infrastructure 33\.3 %, language model 33\.3 %/);
+    // the guide as every label records it, and how the cloud model is reached
+    expect(manifest.guide).toMatch(/^1\.\d+\+[0-9a-f]{8}$/);
+    expect(manifest.models.cloudChannel).toBe("api");
+    expect(digest).toMatch(/\(cloud, through the API\)/);
     expect(checkFrozen({ root, configHash: loaded.hash }).ok).toBe(true);
 
     // after: the test labels open as the reference and the held-out repository joins the inventory

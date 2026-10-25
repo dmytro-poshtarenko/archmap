@@ -5,6 +5,7 @@ import { sha256Hex } from "../../core/hash.js";
 import { toolRoot } from "../../core/paths.js";
 import { findCandidates, loadCandidates, storeCandidates } from "../../labelling/candidates.js";
 import { storeCatalog } from "../../labelling/catalog.js";
+import { GUIDE_PATH, guideVersion } from "../../labelling/guide.js";
 import { extractCatalog } from "../../labelling/catalogs/index.js";
 import { exportLabels, importJsonl, toCsv, toJsonl } from "../../labelling/exchange.js";
 import { agreement } from "../../labelling/labels.js";
@@ -16,14 +17,6 @@ import { openCandidates, openLabels, SPLITS, type Split } from "../../labelling/
 import { type Db, getMeta } from "../../store/db.js";
 import { type CliContext, createContext, type GlobalOptions } from "../context.js";
 
-export const GUIDE_PATH = join(toolRoot, "docs", "labelling-guide.md");
-
-/** `<version>+<content hash>` of the labelling guide, recorded with every label. */
-export function guideVersion(path = GUIDE_PATH): string {
-  const text = readFileSync(path, "utf8");
-  const version = /^Версія:\s*(\S+)/m.exec(text)?.[1] ?? "0";
-  return `${version}+${sha256Hex(text).slice(0, 8)}`;
-}
 
 function snapshotOf(ctx: CliContext) {
   const db = ctx.openDb();
