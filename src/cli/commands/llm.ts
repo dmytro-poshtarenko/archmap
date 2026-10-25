@@ -3,9 +3,10 @@ import type { CallSite } from "../../core/types.js";
 import { LlmClient } from "../../llm/client.js";
 import { concurrencyOf, MODEL_CHOICES, type ModelChoice, providerOf } from "../../llm/providers/index.js";
 import { reader, runLlmRoutes, runResolve } from "../../llm/run.js";
+import { sampledLines } from "../../experiments/runAll.js";
 import { llmStats } from "../../llm/stats.js";
 import type { LlmProvider } from "../../llm/types.js";
-import { openCandidates } from "../../labelling/store.js";
+import { openCandidates, type Split } from "../../labelling/store.js";
 import { createContext, type GlobalOptions } from "../context.js";
 
 function model(value: string): ModelChoice {
@@ -61,14 +62,15 @@ export function registerLlm(program: Command): void {
     .option("--scope <scope>", "open (sites left ambiguous or unresolved) or all (hypothesis 2)", "open")
     .option("--sites <sites>", "everything, or sample (only the lines of the labelled sample)", "everything")
     .option("--model <model>", "local (Ollama), cloud (Claude API), cloud-cli (Claude Code subscription), replay-local, replay-cloud or replay-cloud-cli", "local")
+    .option("--split <split>", "with --sites sample: only the sample lines of this split (dev, test, heldout)")
     .option("--limit <n>", "only the first n sites (smoke tests)", (v) => Number.parseInt(v, 10))
     .option("--budget-usd <usd>", "spending limit for the cloud model", (v) => Number.parseFloat(v))
-    .action(async (opts: { base: string; mode: string; scope: string; sites: string; model: string; limit?: number; budgetUsd?: number }, cmd: Command) => {
+    .action(async (opts: { base: string; mode: string; scope: string; sites: string; split?: string; model: string; limit?: number; budgetUsd?: number }, cmd: Command) => {
       const ctx = createContext(cmd.optsWithGlobals<GlobalOptions>());
       const { config } = ctx.loaded;
       if (opts.mode !== "select" && opts.mode !== "free") throw new Error("--mode must be select or free");
       if (opts.scope !== "open" && opts.scope !== "all") throw new Error("--scope must be open or all");
-      const inSample = opts.sites === "sample" ? sampledSites(ctx) : undefined;
+      const inSample = opts.sites !== "sample" ? undefined : opts.split ? sampledLines(ctx.layout, config.name, opts.split as Split) : sampledSites(ctx);
       const db = ctx.openDb();
       try {
         const client = new LlmClient(db, providerOf(config, model(opts.model), db), { budgetUsd: opts.budgetUsd ?? config.llm.budgetUsd, concurrency: concurrencyOf(model(opts.model)), log: ctx.log });

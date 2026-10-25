@@ -176,7 +176,7 @@ export async function runAll(db: Db, loaded: LoadedConfig, layout: DataLayout, o
 }
 
 /** Sites on the lines of the labelled sample in one split: the test split's lines are asked about only when the test split is measured. */
-function sampledLines(layout: DataLayout, target: string, split: Split): (site: CallSite) => boolean {
+export function sampledLines(layout: DataLayout, target: string, split: Split): (site: CallSite) => boolean {
   const candidates = openCandidates(layout, target);
   try {
     const rows = candidates
