@@ -11,3 +11,7 @@ coverage/
 analysis/.venv/
 __pycache__/
 .pytest_cache/
+
+# working notes of the thesis, kept locally only
+STATUS.md
+docs/journal.md
