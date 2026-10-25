@@ -25,7 +25,7 @@ config file; Rocket.Chat is `configs/rocketchat.yaml`.
 | git | — | Everything |
 | Python with uv | 3.14, uv 0.12 | The statistical analysis (`analysis/`) |
 | Ollama | 0.40, with `qwen3:30b-a3b-instruct-2507-q4_K_M` | The local model |
-| `ANTHROPIC_API_KEY` | — | The cloud model (`claude-opus-5-5`) |
+| `ANTHROPIC_API_KEY`, or Claude Code logged in to a subscription | — | The cloud model (`claude-opus-5-5`): `--model cloud` through the API, `--model cloud-cli` through Claude Code |
 | Helm | — | Optional: rendering Helm charts (`brew install helm`) |
 | codebase-memory-mcp | 0.7 or later | Optional: the baseline |
 
@@ -66,7 +66,7 @@ pnpm archmap build-map --run full.select.local                 # LikeC4 model, v
 pnpm archmap evaluate --run full.select.local --split dev      # recall, precision, θ against the labels
 ```
 
-`pnpm archmap run-all [--model local|cloud|replay-local|replay-cloud]` does
+`pnpm archmap run-all [--model local|cloud|cloud-cli|replay-local|replay-cloud|replay-cloud-cli]` does
 all of it in one command, for every run the hypotheses need. It then writes
 the time and cost of each step to `out/<target>/run-all-<split>.json`.
 - Answers of the model are cached by the prompt as sent, so a repeated run

@@ -44,9 +44,10 @@ export class LlmClient {
     this.identity = provider.id === "replay" ? (provider as ReplayProvider).recorded : { provider: provider.id, model: provider.model };
   }
 
-  /** `local`, `cloud` or `replay`: the tag of runs made with this client. */
+  /** `local`, `cloud` or `replay`: the tag of runs made with this client; the cloud model is `cloud` through either channel. */
   get tag(): string {
-    return this.identity.provider === "anthropic" ? "cloud" : this.identity.provider === "ollama" ? "local" : "replay";
+    const p = this.identity.provider;
+    return p === "anthropic" || p === "claude-code" ? "cloud" : p === "ollama" ? "local" : "replay";
   }
 
   get model(): string {

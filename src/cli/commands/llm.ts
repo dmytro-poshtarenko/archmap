@@ -1,17 +1,15 @@
 import type { Command } from "commander";
 import type { CallSite } from "../../core/types.js";
 import { LlmClient } from "../../llm/client.js";
-import { type ModelChoice, providerOf } from "../../llm/providers/index.js";
+import { concurrencyOf, MODEL_CHOICES, type ModelChoice, providerOf } from "../../llm/providers/index.js";
 import { reader, runLlmRoutes, runResolve } from "../../llm/run.js";
 import { llmStats } from "../../llm/stats.js";
 import type { LlmProvider } from "../../llm/types.js";
 import { openCandidates } from "../../labelling/store.js";
 import { createContext, type GlobalOptions } from "../context.js";
 
-const MODELS = ["local", "cloud", "replay-local", "replay-cloud"];
-
 function model(value: string): ModelChoice {
-  if (!MODELS.includes(value)) throw new Error(`--model must be one of ${MODELS.join(", ")}`);
+  if (!(MODEL_CHOICES as readonly string[]).includes(value)) throw new Error(`--model must be one of ${MODEL_CHOICES.join(", ")}`);
   return value as ModelChoice;
 }
 
@@ -36,7 +34,7 @@ export function registerLlm(program: Command): void {
   program
     .command("llm-routes")
     .description("task (a): the language model lists the route declarations of server files the rules do not cover")
-    .option("--model <model>", "local (Ollama), cloud (Claude), replay-local or replay-cloud", "local")
+    .option("--model <model>", "local (Ollama), cloud (Claude API), cloud-cli (Claude Code subscription), replay-local, replay-cloud or replay-cloud-cli", "local")
     .option("--limit <n>", "only the first n files (smoke tests)", (v) => Number.parseInt(v, 10))
     .option("--budget-usd <usd>", "spending limit for the cloud model", (v) => Number.parseFloat(v))
     .action(async (opts: { model: string; limit?: number; budgetUsd?: number }, cmd: Command) => {
@@ -44,7 +42,7 @@ export function registerLlm(program: Command): void {
       const { config } = ctx.loaded;
       const db = ctx.openDb();
       try {
-        const client = new LlmClient(db, providerOf(config, model(opts.model), db), { budgetUsd: opts.budgetUsd ?? config.llm.budgetUsd, concurrency: opts.model === "cloud" ? 4 : 1, log: ctx.log });
+        const client = new LlmClient(db, providerOf(config, model(opts.model), db), { budgetUsd: opts.budgetUsd ?? config.llm.budgetUsd, concurrency: concurrencyOf(model(opts.model)), log: ctx.log });
         let seen = 0;
         const s = await runLlmRoutes(db, config, reader(config, ctx.layout, ctx.loaded.path), client, opts.limit ? { files: () => seen++ < (opts.limit ?? 0) } : {});
         console.log(`${s.files} files, ${s.requests} requests (${s.cacheHits} from the cache), ${s.routes} routes extracted, ${s.failed} answers without routes`);
@@ -62,7 +60,7 @@ export function registerLlm(program: Command): void {
     .option("--mode <mode>", "select (among the rules' candidates) or free", "select")
     .option("--scope <scope>", "open (sites left ambiguous or unresolved) or all (hypothesis 2)", "open")
     .option("--sites <sites>", "everything, or sample (only the lines of the labelled sample)", "everything")
-    .option("--model <model>", "local (Ollama), cloud (Claude), replay-local or replay-cloud", "local")
+    .option("--model <model>", "local (Ollama), cloud (Claude API), cloud-cli (Claude Code subscription), replay-local, replay-cloud or replay-cloud-cli", "local")
     .option("--limit <n>", "only the first n sites (smoke tests)", (v) => Number.parseInt(v, 10))
     .option("--budget-usd <usd>", "spending limit for the cloud model", (v) => Number.parseFloat(v))
     .action(async (opts: { base: string; mode: string; scope: string; sites: string; model: string; limit?: number; budgetUsd?: number }, cmd: Command) => {
@@ -73,7 +71,7 @@ export function registerLlm(program: Command): void {
       const inSample = opts.sites === "sample" ? sampledSites(ctx) : undefined;
       const db = ctx.openDb();
       try {
-        const client = new LlmClient(db, providerOf(config, model(opts.model), db), { budgetUsd: opts.budgetUsd ?? config.llm.budgetUsd, concurrency: opts.model === "cloud" ? 4 : 1, log: ctx.log });
+        const client = new LlmClient(db, providerOf(config, model(opts.model), db), { budgetUsd: opts.budgetUsd ?? config.llm.budgetUsd, concurrency: concurrencyOf(model(opts.model)), log: ctx.log });
         let taken = 0;
         const s = await runResolve(db, config, reader(config, ctx.layout, ctx.loaded.path), client, {
           base: opts.base,

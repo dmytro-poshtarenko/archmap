@@ -8,7 +8,7 @@ export function registerRunAll(program: Command): void {
   program
     .command("run-all")
     .description("reproduce a measurement in one command: extraction, infrastructure, the model, cases, variants, evaluation and analysis")
-    .option("--model <model>", "local, cloud, replay-local or replay-cloud (replay asks nothing new)", "local")
+    .option("--model <model>", "local, cloud, cloud-cli, replay-local, replay-cloud or replay-cloud-cli (replay asks nothing new)", "local")
     .option("--sites <sites>", "sample (the model is asked only about the labelled sample) or everything", "sample")
     .option("--split <split>", "split to evaluate: dev, or test and heldout after the freeze", "dev")
     .option("--no-analysis", "skip the Python analysis")

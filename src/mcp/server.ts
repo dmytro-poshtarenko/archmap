@@ -46,7 +46,7 @@ export function createServer(ctx: McpContext): McpServer {
       inputSchema: {
         variant: z.enum(["full", "no-llm", "no-infra", "no-rules"]).default("full"),
         llm: z.enum(["cache-only", "live"]).default("cache-only"),
-        model: z.enum(["local", "cloud"]).default("local"),
+        model: z.enum(["local", "cloud", "cloud-cli"]).default("local"),
       },
     },
     async ({ variant, llm, model }) => {
@@ -57,7 +57,7 @@ export function createServer(ctx: McpContext): McpServer {
         const matched = runMatch(db, config, flags, { configHash: ctx.loaded.hash });
         let resolved: unknown = null;
         if (flags.llm) {
-          const choice = llm === "live" ? model : model === "cloud" ? "replay-cloud" : "replay-local";
+          const choice = llm === "live" ? model : (`replay-${model}` as const);
           const client = new LlmClient(db, providerOf(config, choice, db), { budgetUsd: config.llm.budgetUsd, log: (m) => process.stderr.write(`${m}\n`) });
           try {
             resolved = await runResolve(db, config, reader(config, ctx.layout, ctx.loaded.path), client, { base: matched.run, mode: "select", scope: "open", configHash: ctx.loaded.hash });

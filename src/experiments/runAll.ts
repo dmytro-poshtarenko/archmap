@@ -11,7 +11,7 @@ import { programOf, runExtraction } from "../extract/run.js";
 import { extractInfra, writeInfra } from "../infra/index.js";
 import { openCandidates, openLabels, type Split } from "../labelling/store.js";
 import { LlmClient } from "../llm/client.js";
-import { type ModelChoice, providerOf } from "../llm/providers/index.js";
+import { concurrencyOf, type ModelChoice, providerOf } from "../llm/providers/index.js";
 import { reader, runLlmRoutes, runResolve } from "../llm/run.js";
 import { runMatch, type Variant } from "../match/run.js";
 import { type Db, getMeta } from "../store/db.js";
@@ -67,7 +67,7 @@ export async function runAll(db: Db, loaded: LoadedConfig, layout: DataLayout, o
     opts.log(`${name}: ${r.note} (${rec.seconds}s${rec.costUsd ? `, $${rec.costUsd}` : ""})`);
   };
   const read = reader(config, layout, loaded.path);
-  const client = () => new LlmClient(db, providerOf(config, opts.model, db), { budgetUsd: opts.budgetUsd ?? config.llm.budgetUsd, concurrency: opts.model === "cloud" ? 4 : 1, log: opts.log });
+  const client = () => new LlmClient(db, providerOf(config, opts.model, db), { budgetUsd: opts.budgetUsd ?? config.llm.budgetUsd, concurrency: concurrencyOf(opts.model), log: opts.log });
 
   await step("extract", () => {
     const s = runExtraction(db, config, programOf(db, config, layout, loaded.path));

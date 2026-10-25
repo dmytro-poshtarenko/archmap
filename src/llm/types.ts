@@ -2,7 +2,7 @@ import type { z } from "zod";
 import type { Effort } from "../config/schema.js";
 
 export type TaskId = "extract-routes" | "resolve-select" | "resolve-free" | "memo-probe";
-export type ProviderId = "anthropic" | "ollama" | "replay";
+export type ProviderId = "anthropic" | "claude-code" | "ollama" | "replay";
 
 /** One request to a language model, as every provider receives it. */
 export interface LlmRequest<T = unknown> {

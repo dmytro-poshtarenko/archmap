@@ -5,8 +5,36 @@
 | Provider | Model | How answers are fixed |
 |---|---|---|
 | `cloud` (`AnthropicProvider`) | `claude-opus-5-5` | See below |
+| `cloud-cli` (`ClaudeCliProvider`) | `claude-opus-5-5`, through Claude Code on the user's subscription | See below |
 | `local` (`OllamaProvider`) | `qwen3:30b-a3b-instruct-2507-q4_K_M` | See below |
-| `replay-local`, `replay-cloud` (`ReplayProvider`) | the recorded one | Recorded answers only; a request never recorded is an error |
+| `replay-local`, `replay-cloud`, `replay-cloud-cli` (`ReplayProvider`) | the recorded one | Recorded answers only; a request never recorded is an error |
+
+**The cloud model through the subscription (`cloud-cli`).** It is the same model as `cloud`, reached through Claude Code in print mode instead of the API, so it costs nothing beyond the subscription.
+- **Isolation.** Each request is a fresh session in an empty directory, run with:
+  - our system prompt in place of Claude Code's (`--system-prompt-file`);
+  - no tools (`--tools ""`);
+  - no MCP servers (`--strict-mcp-config`);
+  - no settings, so no hooks (`--setting-sources ""`);
+  - no saved session;
+  - the task's effort (`--effort`);
+  - the schema as structured output (`--json-schema`, in the draft-07 dialect).
+- **What the model sees.** Checked live on Claude Code 2.1.303 on 2026-10-25:
+  - the session has no tools and no MCP servers;
+  - the model sees our prompt and one short reminder with the account's e-mail;
+  - about 1.4k tokens of overhead are the same in every request.
+- **Recorded per answer.** The model is read from `modelUsage`. The prompt length counts the cached parts too, since Claude Code caches nearly the whole prompt.
+- **Differences from the API.** There is no batch and no output limit to set. Usage counts against the subscription's limits.
+- **Errors.**
+  - A refusal or an answer outside the schema is recorded as "no link".
+  - An error of the service (a usage limit, an outage, no login) is thrown, so it is never cached and a later run asks again.
+- **`--bare` is not used.** That mode reads only `ANTHROPIC_API_KEY`, never the subscription's login.
+- **Answers are kept apart.** The provider id `claude-code` is part of the cache key, so these answers are never mixed with those of the API. Runs still carry the `cloud` tag: the same model plays the same part.
+
+**First live run, the memorisation probe (2026-10-25).**
+- 24 requests, all answered within the schema, about 8 s each.
+- From the path alone, Opus 5.5 named **50 of 59** routes of the original controllers and 0 of 59 with renamed paths.
+- qwen3 named 2 of 59 and 0 of 59.
+- So the cloud model knows Rocket.Chat from training. The renaming in the H3 kit removes that knowledge, but on the real code it is a threat to validity.
 
 **Cloud model.**
 - Calls go through `client.messages.parse` with structured output

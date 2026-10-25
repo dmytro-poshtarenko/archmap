@@ -1,8 +1,11 @@
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { cacheKey } from "../../src/llm/cache.js";
 import { LlmClient, repeatsOf } from "../../src/llm/client.js";
 import { loadTemplate, render, TEMPLATES } from "../../src/llm/prompts.js";
+import { ClaudeCliProvider, type RunCommand } from "../../src/llm/providers/claudeCli.js";
 import { errorOf, OllamaProvider, windowFor } from "../../src/llm/providers/ollama.js";
 import { ReplayProvider } from "../../src/llm/providers/replay.js";
 import { decisionOf } from "../../src/llm/stats.js";
@@ -192,6 +195,46 @@ describe("the Ollama provider", () => {
     const huge = async () => ({ error: { type: "exceed_context_size_error", n_prompt_tokens: 50000, n_ctx: 8192 } });
     const b = await new OllamaProvider("qwen", { url: "http://x", seed: 1, numCtx: 8192, maxCtx: 8192, post: huge }).complete(request("q"));
     expect(b).toMatchObject({ parsed: null, stopReason: "truncated-input" });
+  });
+});
+
+describe("the Claude Code provider (subscription)", () => {
+  const usage = { "claude-opus-5-5": { inputTokens: 2, outputTokens: 40, cacheReadInputTokens: 0, cacheCreationInputTokens: 1500 } };
+  const success = (structured: unknown) => ({
+    stdout: JSON.stringify({ type: "result", subtype: "success", is_error: false, result: JSON.stringify(structured), structured_output: structured, stop_reason: "tool_use", modelUsage: usage }),
+    stderr: "",
+    code: 0,
+  });
+
+  it("sends only the request: our system prompt, no tools, no MCP servers, no settings", async () => {
+    const seen: Array<{ args: string[]; cwd: string; input: string; system: string }> = [];
+    const run: RunCommand = async (_cmd, args, opts) => {
+      seen.push({ args, cwd: opts.cwd, input: opts.input, system: readFileSync(join(opts.cwd, "system.md"), "utf8") });
+      return success({ value: "ok" });
+    };
+    const provider = new ClaudeCliProvider("claude-opus-5-5", { run });
+    const a = await provider.complete({ ...request("the user part"), system: "the system part" });
+    expect(a).toMatchObject({ parsed: { value: "ok" }, stopReason: "end_turn", modelActual: "claude-opus-5-5", costUsd: 0, usage: { input: 2, output: 40, cacheRead: 0, cacheWrite: 1500 } });
+    const [s] = seen;
+    if (!s) throw new Error("no call");
+    const flag = (name: string) => s.args[s.args.indexOf(name) + 1];
+    expect([s.input, s.system]).toEqual(["the user part", "the system part"]);
+    expect([flag("--tools"), flag("--setting-sources"), flag("--model"), flag("--effort")]).toEqual(["", "", "claude-opus-5-5", "low"]);
+    expect(s.args).toEqual(expect.arrayContaining(["-p", "--strict-mcp-config", "--no-session-persistence"]));
+    expect(JSON.parse(flag("--json-schema") as string)).toMatchObject({ type: "object", properties: { value: { type: "string" } } });
+    // every request is a fresh session in an empty directory, removed afterwards
+    expect(existsSync(s.cwd)).toBe(false);
+    // the same cloud model, so its runs carry the cloud tag
+    expect(new LlmClient(openDb(":memory:"), provider, { budgetUsd: 1 }).tag).toBe("cloud");
+  });
+
+  it("records a refusal as no answer, and throws on an error of the service so nothing is cached", async () => {
+    const refusal: RunCommand = async () => ({ stdout: JSON.stringify({ subtype: "success", is_error: false, stop_reason: "refusal", result: "no" }), stderr: "", code: 0 });
+    expect(await new ClaudeCliProvider("m", { run: refusal }).complete(request("q"))).toMatchObject({ parsed: null, stopReason: "refusal" });
+    const limit: RunCommand = async () => ({ stdout: JSON.stringify({ subtype: "success", is_error: true, api_error_status: 429, result: "usage limit reached" }), stderr: "", code: 1 });
+    await expect(new ClaudeCliProvider("m", { run: limit }).complete(request("q"))).rejects.toThrow(/429/);
+    const noLogin: RunCommand = async () => ({ stdout: "", stderr: "not logged in", code: 1 });
+    await expect(new ClaudeCliProvider("m", { run: noLogin }).complete(request("q"))).rejects.toThrow(/not logged in/);
   });
 });
 

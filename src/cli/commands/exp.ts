@@ -5,7 +5,7 @@ import { programOf } from "../../extract/run.js";
 import { collectCbm, writeCbmRun } from "../../experiments/cbm.js";
 import { generateH3, h3Dir, runH3, runProbe, toCsv } from "../../experiments/h3run.js";
 import { LlmClient } from "../../llm/client.js";
-import { type ModelChoice, providerOf } from "../../llm/providers/index.js";
+import { concurrencyOf, type ModelChoice, providerOf } from "../../llm/providers/index.js";
 import { reader } from "../../llm/run.js";
 import { createContext, type GlobalOptions } from "../context.js";
 
@@ -57,7 +57,7 @@ export function registerExperiments(program: Command): void {
     exp
       .command(name)
       .description(description)
-      .option("--model <model>", "local, cloud, replay-local or replay-cloud", "local")
+      .option("--model <model>", "local, cloud, cloud-cli, replay-local, replay-cloud or replay-cloud-cli", "local")
       .option("--budget-usd <usd>", "spending limit for the cloud model", (v) => Number.parseFloat(v))
       .action(async (opts: { model: string; budgetUsd?: number }, cmd: Command) => {
         const ctx = createContext(cmd.optsWithGlobals<GlobalOptions>());
@@ -65,7 +65,7 @@ export function registerExperiments(program: Command): void {
         const db = ctx.openDb();
         try {
           const provider = providerOf(config, opts.model as ModelChoice, db);
-          const client = new LlmClient(db, provider, { budgetUsd: opts.budgetUsd ?? config.llm.budgetUsd, concurrency: opts.model === "cloud" ? 4 : 1, log: ctx.log });
+          const client = new LlmClient(db, provider, { budgetUsd: opts.budgetUsd ?? config.llm.budgetUsd, concurrency: concurrencyOf(opts.model as ModelChoice), log: ctx.log });
           const out = h3Dir(ctx.layout.root, config.name);
           const tag = client.tag === "cloud" ? "cloud" : "local";
           if (name === "h3-run") {
