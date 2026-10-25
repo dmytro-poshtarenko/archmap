@@ -147,6 +147,8 @@ export async function runResolve(db: Db, config: TargetConfig, read: (repo: stri
   for (const c of config.components) for (const a of [c.id, ...c.aliases]) aliases.set(a.toLowerCase(), c.id);
   for (const c of infra.containers) if (c.component) for (const h of [c.name, ...c.hostnames]) aliases.set(h.toLowerCase(), c.component);
   const partOf = (name: string) => aliases.get(name.trim().toLowerCase()) ?? null;
+  const httpBases = [...new Set(rules.bindings.flatMap((b) => (b.base ?? []).flatMap((spec) => ("value" in spec ? [spec.value] : []))))];
+  const conventions = { httpBases, subscriptionPrefixes: rules.matching.subscriptionPrefixes };
 
   const allowed = sendable(db, config, client);
   const targets = sites.filter((s) => {
@@ -189,7 +191,7 @@ export async function runResolve(db: Db, config: TargetConfig, read: (repo: stri
     let key: string | null;
     if (opts.mode === "select") key = chosen(a.parsed as SelectAnswer, ask.candidates);
     else {
-      const n = normaliseFree(a.parsed as FreeAnswer, { resolver, catalog, partOf, sources });
+      const n = normaliseFree(a.parsed as FreeAnswer, { resolver, catalog, partOf, sources, conventions });
       key = n.key;
       if (n.invented) invented++;
       if (n.invented) {

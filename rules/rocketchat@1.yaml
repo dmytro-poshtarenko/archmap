@@ -30,6 +30,9 @@ valueSources:
 matching:
   guards:
     - { call: "isRunningMs()", env: TRANSPORTER, pattern: "^(?:nats|TCP)" }
+  # A stream's DDP subscription is named `stream-<name>` (the Streamer's publication); keys use the name
+  # the code passes (useStream('notify-logged')), so a free answer naming the subscription is read that way.
+  subscriptionPrefixes: [stream-]
 
 factories:
   # export const Presence = proxify<IPresence>('presence'), in core-services and wherever proxify is imported from it

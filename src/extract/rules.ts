@@ -115,8 +115,10 @@ const PackFile = z.strictObject({
       guards: z.array(z.strictObject({ call: z.string(), env: z.string(), pattern: z.string() })).default([]),
       /** Fixed paths of a transport, e.g. DDP over `/websocket`, which gateway rules route. */
       transports: z.array(z.strictObject({ type: InteractionType, path: z.string().startsWith("/") })).default([]),
+      /** Prefixes a framework puts before a stream's name in its subscription (`stream-notify-logged`). */
+      subscriptionPrefixes: z.array(z.string().min(1)).default([]),
     })
-    .default({ guards: [], transports: [] }),
+    .default({ guards: [], transports: [], subscriptionPrefixes: [] }),
 });
 
 export interface RuleSet {
@@ -145,7 +147,7 @@ export function loadRules(refs: string[], root = toolRoot): RuleSet {
   const valueSources: RuleSet["valueSources"] = [];
   const libraries: string[] = [];
   const facades: RuleSet["facades"] = [];
-  const matching: RuleSet["matching"] = { guards: [], transports: [] };
+  const matching: RuleSet["matching"] = { guards: [], transports: [], subscriptionPrefixes: [] };
   const material: unknown[] = [ENGINE_VERSION];
   for (const ref of refs) {
     const file = join(root, "rules", `${ref}.yaml`);
@@ -173,6 +175,7 @@ export function loadRules(refs: string[], root = toolRoot): RuleSet {
     facades.push(...pack.facades);
     matching.guards.push(...pack.matching.guards);
     matching.transports.push(...pack.matching.transports);
+    matching.subscriptionPrefixes.push(...pack.matching.subscriptionPrefixes);
     material.push(text);
   }
   return { refs, bindings, factories, detectors, valueSources, libraries, facades, matching, hash: hashOf(material) };

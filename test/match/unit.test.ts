@@ -301,6 +301,27 @@ describe("free answers of the model", () => {
   });
 });
 
+describe("key conventions of free answers", () => {
+  const free = (kind: "http" | "ddp-sub", name: string, component: string, method: string | null = null) => ({ target: { kind, method, name, component }, confidence: 1 });
+  const conventions = { httpBases: ["/api"], subscriptionPrefixes: ["stream-"] };
+
+  it("read a path as a client writes it, before its base", () => {
+    const r = resolver([], [route("main:api.ts", "http", "/api/v1/rooms.info", ["server"], null, "GET")]);
+    const ctx = { resolver: r, catalog: methodCatalog(r, [], ALL_SOURCES), partOf: (x: string) => x, sources: ALL_SOURCES };
+    expect(normaliseFree(free("http", "/v1/rooms.info", "server", "GET"), { ...ctx, conventions })).toMatchObject({ key: "http:GET:/api/v1/rooms.info@server", invented: false });
+    expect(normaliseFree(free("http", "/v1/rooms.info", "server", "GET"), ctx)).toMatchObject({ key: null, invented: true });
+  });
+
+  it("read a stream's subscription by the stream's own name", () => {
+    const r = resolver([], [route("main:streams.ts", "ddp-method", "notify-logged", ["server"], null, "sub")]);
+    const ctx = { resolver: r, catalog: methodCatalog(r, [], ALL_SOURCES), partOf: (x: string) => x, sources: ALL_SOURCES };
+    expect(normaliseFree(free("ddp-sub", "stream-notify-logged", "server"), { ...ctx, conventions })).toMatchObject({ key: "ddp:sub:notify-logged@server", invented: false });
+    expect(normaliseFree(free("ddp-sub", "stream-notify-logged", "server"), ctx)).toMatchObject({ key: null, invented: true });
+    // the component stays the model's: a wrong one is still wrong
+    expect(normaliseFree(free("ddp-sub", "stream-notify-logged", "elsewhere"), { ...ctx, conventions })).toMatchObject({ key: null, invented: true });
+  });
+});
+
 describe("generic routes", () => {
   it("a route of parameters and wildcards alone links no call", () => {
     const generic = ["/:path", "/*", "/:store/:fileId/:fileName?", "/"].map((t, i) => ({ ...route(`main:g${i}.ts`, "http", t, ["server"], null, "GET"), source: "llm" as const }));

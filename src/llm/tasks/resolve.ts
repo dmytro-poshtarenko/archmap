@@ -156,7 +156,14 @@ export function chosen(answer: SelectAnswer | null, candidates: string[]): strin
  */
 export function normaliseFree(
   answer: FreeAnswer | null,
-  ctx: { resolver: Resolver; catalog: Map<string, string>; partOf: (name: string) => string | null; sources: Sources },
+  ctx: {
+    resolver: Resolver;
+    catalog: Map<string, string>;
+    partOf: (name: string) => string | null;
+    sources: Sources;
+    /** Key conventions from the rules: the bases clients put before a path, the prefixes of stream subscriptions. */
+    conventions?: { httpBases: string[]; subscriptionPrefixes: string[] };
+  },
 ): { key: string | null; proposed: string | null; invented: boolean } {
   const t = answer?.target;
   if (!t) return { key: null, proposed: null, invented: false };
@@ -168,24 +175,27 @@ export function normaliseFree(
       const method = (t.method ?? "*").toUpperCase();
       const path = `/${t.name.trim().replace(/^[a-z]+:\/\/[^/]+/i, "").replace(/^\/+/, "").replace(/\/+$/, "")}`;
       proposed = `http:${method}:${path}@${component}`;
-      const form = httpForms({ parts: [{ k: "lit", v: path }], hops: [] }).forms[0];
-      if (form) {
-        // only the routes this variant knows: without the rules, the ones the model extracted
-        const fits = ctx.resolver
-          .routesOf("http", ctx.sources)
-          .filter((r) => r.components.includes(component) && (r.method === null || method === "*" || r.method.toUpperCase() === method))
-          .map((r) => ({ r, fit: fitPath(form.segments, form.text, ctx.resolver.patternOf(r.template)) }))
-          .filter((x) => x.fit !== null && !x.fit.weak)
-          .sort((a, b) => (b.fit?.score[0] ?? 0) - (a.fit?.score[0] ?? 0));
-        const best = fits[0]?.r;
+      // the path as the server declares it, or as a client writes it before its base (`/v1/x` for `/api/v1/x`)
+      const bases = (ctx.conventions?.httpBases ?? []).filter((b) => !path.startsWith(`${b}/`)).map((b) => `${b}${path}`);
+      for (const p of [path, ...bases]) {
+        const best = bestHttpRoute(ctx, p, method, component);
         if (best) return { key: `http:${best.method?.toUpperCase() ?? method}:${best.template}@${component}`, proposed, invented: false };
       }
       break;
     }
     case "ddp-call":
-    case "ddp-sub":
+    case "ddp-sub": {
       proposed = `ddp:${t.kind === "ddp-sub" ? "sub" : "call"}:${t.name.trim()}@${component}`;
+      if (t.kind === "ddp-sub" && !ctx.catalog.has(canonicalTargetKey(proposed))) {
+        // a stream's subscription carries a prefix (`stream-notify-logged`); its key uses the stream's own name
+        for (const prefix of ctx.conventions?.subscriptionPrefixes ?? []) {
+          const name = t.name.trim();
+          const key = name.startsWith(prefix) ? ctx.catalog.get(canonicalTargetKey(`ddp:sub:${name.slice(prefix.length)}@${component}`)) : undefined;
+          if (key) return { key, proposed, invented: false };
+        }
+      }
       break;
+    }
     case "action":
       proposed = `action:-:${t.name.trim()}@${component}`;
       break;
@@ -204,6 +214,19 @@ export function normaliseFree(
   }
   const key = ctx.catalog.get(canonicalTargetKey(proposed)) ?? null;
   return { key, proposed, invented: key === null };
+}
+
+/** The declared route of the variant a path fits best in a part, if any fits firmly. */
+function bestHttpRoute(ctx: { resolver: Resolver; sources: Sources }, path: string, method: string, component: string): RouteDecl | undefined {
+  const form = httpForms({ parts: [{ k: "lit", v: path }], hops: [] }).forms[0];
+  if (!form) return undefined;
+  // only the routes this variant knows: without the rules, the ones the model extracted
+  return ctx.resolver
+    .routesOf("http", ctx.sources)
+    .filter((r) => r.components.includes(component) && (r.method === null || method === "*" || r.method.toUpperCase() === method))
+    .map((r) => ({ r, fit: fitPath(form.segments, form.text, ctx.resolver.patternOf(r.template)) }))
+    .filter((x) => x.fit !== null && !x.fit.weak)
+    .sort((a, b) => (b.fit?.score[0] ?? 0) - (a.fit?.score[0] ?? 0))[0]?.r;
 }
 
 /**
