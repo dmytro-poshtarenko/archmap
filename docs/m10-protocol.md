@@ -28,6 +28,25 @@ One command reproduces a measurement. The steps, in order:
   all fifteen steps on mini-complex this way, at $0.
 - With `--sites sample` (the default), the model is asked only about the
   lines of the labelled sample, which is all the evaluation needs.
+- With `--method-only`, only the method itself is resolved (the full variant,
+  the model choosing among candidates on open sites), besides the variant
+  without the model, which asks nothing. The held-out repository checks the
+  frozen method, not the hypotheses, so it runs this way.
+
+**Fewer cloud requests (decided on 2026-10-25).** Every request to the cloud
+model counts against the subscription, so each is asked once:
+- **Before the first cloud request, everything that shapes the prompts is
+  final:** templates, rules and extraction (the system description lists the
+  collections the code uses), candidates, fragments, chunking.
+- **The cache serves every later run.** Changes to matching, normalisation
+  or evaluation are recomputed from it without the model.
+- **Hypothesis 3 for the cloud model runs a smaller kit:**
+  `exp h3-run --model cloud-cli --levels 0,3,5 --no-position`.
+  - It has 36 variants instead of 90: about 1k, 33k and 98k tokens, without
+    the position series.
+  - Each model's slope is fitted on its own variants. Position had no effect
+    for qwen3.
+- **The held-out repository runs `--method-only`.**
 
 ## Freeze
 

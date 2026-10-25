@@ -1,4 +1,13 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { loadConfig } from "../../src/config/load.js";
+import { toolRoot } from "../../src/core/paths.js";
+import { runH3 } from "../../src/experiments/h3run.js";
+import { LlmClient } from "../../src/llm/client.js";
+import type { LlmAnswer, LlmProvider, LlmRequest } from "../../src/llm/types.js";
+import { openDb } from "../../src/store/db.js";
+import { tempDir } from "../helpers.js";
 import { mulberry32 } from "../../src/core/prng.js";
 import { detectRoutes, found, paddingStatements, prepareController, renameRoute, variantsOf } from "../../src/experiments/h3.js";
 
@@ -86,5 +95,32 @@ describe("hypothesis 3 variants", () => {
     expect(found(route, [{ method: null, template: "zimlo/:x" }])).toBe(true);
     expect(found(route, [{ method: "POST", template: "/api/v1/zimlo/:id" }])).toBe(false);
     expect(found(route, [{ method: "GET", template: "/api/v1/zimlo" }])).toBe(false);
+  });
+});
+
+describe("hypothesis 3 run", () => {
+  it("asks only about the chosen variants: some length levels, without the position series", async () => {
+    const dir = tempDir();
+    const route = { method: "GET", template: "/api/v1/a.b", line: 1, position: 0.5 };
+    const variant = (id: string, series: "length" | "position", level: string) => ({ id, controller: "c01", series, level, path: "x.ts", chars: 10, routes: [route], file: `variants/${id}.ts` });
+    const variants = [variant("c01-L0", "length", "0"), variant("c01-L1", "length", "1"), variant("c01-L3", "length", "3"), variant("c01-P-start", "position", "start")];
+    mkdirSync(join(dir, "variants"), { recursive: true });
+    for (const v of variants) writeFileSync(join(dir, v.file), `API.v1.get('a.b', {}, () => {}); // ${v.id}`);
+    writeFileSync(join(dir, "manifest.json"), JSON.stringify({ target: "t", seed: 1, createdAt: "", levels: [], positionChars: 0, controllers: [], variants }));
+    const asked: string[] = [];
+    const provider: LlmProvider = {
+      id: "ollama",
+      model: "m",
+      async complete<T>(req: LlmRequest<T>): Promise<LlmAnswer<T>> {
+        asked.push(req.user.slice(-12));
+        const parsed = { routes: [{ kind: "http", method: "GET", name: "/api/v1/a.b", line: 1 }] } as T;
+        return { parsed, raw: "", stopReason: "end_turn", modelRequested: "m", modelActual: "m", usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0 }, latencyMs: 1, costUsd: 0, cached: false, batchId: null };
+      },
+    };
+    const config = loadConfig(join(toolRoot, "configs", "rocketchat.yaml")).config;
+    const rows = await runH3(dir, config, new LlmClient(openDb(":memory:"), provider, { budgetUsd: 1 }), provider, { levels: ["0", "3"], position: false });
+    expect(rows.map((r) => r.variant)).toEqual(["c01-L0", "c01-L3"]);
+    expect(asked).toHaveLength(2);
+    expect(rows.every((r) => r.found === 1)).toBe(true);
   });
 });

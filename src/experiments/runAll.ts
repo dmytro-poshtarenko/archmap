@@ -25,6 +25,12 @@ export interface RunAllOptions {
   split: Split;
   /** Run the Python analysis when the split has labelled units. */
   analysis: boolean;
+  /**
+   * Only the method itself (the full variant, the model choosing among
+   * candidates on open sites) and the free variant without the model: the
+   * held-out repository checks the frozen method, not the hypotheses.
+   */
+  methodOnly?: boolean;
   /** Spending limit for the cloud model. */
   budgetUsd?: number;
   frozen: boolean;
@@ -103,13 +109,16 @@ export async function runAll(db: Db, loaded: LoadedConfig, layout: DataLayout, o
   }
 
   const inSample = opts.sites === "sample" ? sampledLines(layout, config.name, opts.split) : undefined;
-  const plan = [
-    { base: "full", mode: "select" as const, scope: "open" as const },
-    { base: "no-infra", mode: "select" as const, scope: "open" as const },
-    { base: "no-rules", mode: "free" as const, scope: "open" as const },
-    { base: "full", mode: "select" as const, scope: "all" as const },
-    { base: "full", mode: "free" as const, scope: "all" as const },
-  ];
+  const method = { base: "full", mode: "select" as const, scope: "open" as const };
+  const plan = opts.methodOnly
+    ? [method]
+    : [
+        method,
+        { base: "no-infra", mode: "select" as const, scope: "open" as const },
+        { base: "no-rules", mode: "free" as const, scope: "open" as const },
+        { base: "full", mode: "select" as const, scope: "all" as const },
+        { base: "full", mode: "free" as const, scope: "all" as const },
+      ];
   let tag = "local";
   for (const p of plan) {
     await step(`resolve ${p.base} ${p.mode}${p.scope === "all" ? "-all" : ""}`, async () => {
@@ -120,7 +129,8 @@ export async function runAll(db: Db, loaded: LoadedConfig, layout: DataLayout, o
     });
   }
 
-  const runs = plannedRuns(tag);
+  const planned = plannedRuns(tag);
+  const runs = opts.methodOnly ? { ...planned, without: {}, modes: {}, all: [planned.full, "no-llm"] } : planned;
   let units = 0;
   await step(`evaluate ${opts.split}`, () => {
     const labels = openLabels(layout, config.name, opts.split, "evaluate", opts.frozen);
@@ -147,7 +157,9 @@ export async function runAll(db: Db, loaded: LoadedConfig, layout: DataLayout, o
   if (opts.analysis && units > 0) {
     await step("analysis", () => {
       const args = ["run", "python", "-m", "archmap_analysis.report", "--data", layout.root, "--target", config.name, "--split", opts.split, "--runs", ...runs.all, "--full", runs.full];
-      args.push("--without", ...Object.entries(runs.without).map(([k, v]) => `${k}=${v}`), "--modes", ...Object.entries(runs.modes).map(([k, v]) => `${k}=${v}`));
+      if (!opts.methodOnly) {
+        args.push("--without", ...Object.entries(runs.without).map(([k, v]) => `${k}=${v}`), "--modes", ...Object.entries(runs.modes).map(([k, v]) => `${k}=${v}`));
+      }
       const r = spawnSync("uv", args, { cwd: join(toolRoot, "analysis"), encoding: "utf8" });
       if (r.status !== 0) throw new Error(`analysis failed: ${r.stderr}`);
       return { note: r.stdout.trim().split("\n").join("; ") };

@@ -59,7 +59,9 @@ export function registerExperiments(program: Command): void {
       .description(description)
       .option("--model <model>", "local, cloud, cloud-cli, replay-local, replay-cloud or replay-cloud-cli", "local")
       .option("--budget-usd <usd>", "spending limit for the cloud model", (v) => Number.parseFloat(v))
-      .action(async (opts: { model: string; budgetUsd?: number }, cmd: Command) => {
+      .option("--levels <list>", "h3-run: only these length levels, e.g. 0,3,5", (v) => v.split(",").map((x) => x.trim()))
+      .option("--no-position", "h3-run: without the position series")
+      .action(async (opts: { model: string; budgetUsd?: number; levels?: string[]; position: boolean }, cmd: Command) => {
         const ctx = createContext(cmd.optsWithGlobals<GlobalOptions>());
         const { config } = ctx.loaded;
         const db = ctx.openDb();
@@ -69,7 +71,7 @@ export function registerExperiments(program: Command): void {
           const out = h3Dir(ctx.layout.root, config.name);
           const tag = client.tag === "cloud" ? "cloud" : "local";
           if (name === "h3-run") {
-            const rows = await runH3(out, config, client, provider);
+            const rows = await runH3(out, config, client, provider, { levels: opts.levels, position: opts.position });
             writeFileSync(join(out, `h3_results-${tag}.csv`), toCsv(rows));
             const byLevel = new Map<string, { n: number; found: number }>();
             for (const r of rows) {

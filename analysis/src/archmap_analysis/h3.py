@@ -18,9 +18,11 @@ REQUIRED = ["controller", "variant", "model", "tokens", "position", "found"]
 
 def gee_length(df: pd.DataFrame, alpha: float = 0.05) -> pd.DataFrame:
     """
-    Fits `found ~ log(tokens) × model + position` with an exchangeable
-    working correlation within controllers and returns, per model, the slope
-    of log(tokens) with its standard error and one-sided p-value for a fall.
+    Fits `found ~ log(tokens) + position` with an exchangeable working
+    correlation within controllers, for each model on its own variants (the
+    cloud model may run a smaller kit), and returns the slope of log(tokens)
+    with its standard error and one-sided p-value for a fall. A model that
+    found every route has nothing to fit: its recall does not fall.
     """
     missing = [c for c in REQUIRED if c not in df.columns]
     if missing:
@@ -28,25 +30,20 @@ def gee_length(df: pd.DataFrame, alpha: float = 0.05) -> pd.DataFrame:
     d = df.copy()
     d["log_tokens"] = np.log(d["tokens"].astype(float))
     d["found"] = d["found"].astype(int)
-    models = sorted(d["model"].unique())
-    fit = smf.gee(
-        "found ~ log_tokens * C(model) + position",
-        groups="controller",
-        data=d,
-        family=sm.families.Binomial(),
-        cov_struct=sm.cov_struct.Exchangeable(),
-    ).fit()
-    params = fit.params
-    cov = fit.cov_params()
     rows = []
-    for m in models:
-        contrast = pd.Series(0.0, index=params.index)
-        contrast["log_tokens"] = 1.0
-        term = f"log_tokens:C(model)[T.{m}]"
-        if term in contrast.index:
-            contrast[term] = 1.0
-        slope = float(contrast @ params)
-        se = float(np.sqrt(contrast @ cov @ contrast))
+    for m, g in sorted(d.groupby("model"), key=lambda x: x[0]):
+        if g["found"].nunique() < 2:
+            rows.append({"model": m, "slope": float("nan"), "se": float("nan"), "z": float("nan"), "p_fall": 1.0, "falls": False})
+            continue
+        fit = smf.gee(
+            "found ~ log_tokens + position",
+            groups="controller",
+            data=g,
+            family=sm.families.Binomial(),
+            cov_struct=sm.cov_struct.Exchangeable(),
+        ).fit()
+        slope = float(fit.params["log_tokens"])
+        se = float(fit.bse["log_tokens"])
         z = slope / se if se > 0 else float("nan")
         p_fall = float(norm.cdf(z))
         rows.append({"model": m, "slope": slope, "se": se, "z": z, "p_fall": p_fall, "falls": bool(p_fall < alpha and slope < 0)})

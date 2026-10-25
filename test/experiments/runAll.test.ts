@@ -46,4 +46,17 @@ describe("run-all", () => {
     expect(steps.at(-1)?.note).toMatch(/no labelled units/);
     expect(readFileSync(auditFile, "utf8").trim().split("\n")).toHaveLength(runs.all.length);
   }, 120_000);
+
+  it("runs only the method itself for the held-out repository", async () => {
+    const loaded = loadConfig(join(toolRoot, "configs", "mini.yaml"));
+    const layout = dataLayout(tempDir());
+    mkdirSync(layout.db, { recursive: true });
+    const db = openDb(join(layout.db, "mini.sqlite"));
+    runInventory(db, loaded.config, layout, loaded.path, { allowHeldout: false, configHash: loaded.hash });
+    const auditFile = join(layout.root, "audit.jsonl");
+    const steps = await runAll(db, loaded, layout, { model: "replay-local", sites: "sample", split: "dev", analysis: true, methodOnly: true, frozen: false, log: () => {}, auditFile });
+    expect(steps.filter((s) => s.step.startsWith("resolve")).map((s) => s.step)).toEqual(["resolve full select"]);
+    // the method and the variant without the model, which asks nothing
+    expect(readFileSync(auditFile, "utf8").trim().split("\n").map((l) => JSON.parse(l).run)).toEqual(["full.select.local", "no-llm"]);
+  }, 120_000);
 });

@@ -111,14 +111,25 @@ export interface H3Row {
   stop: string;
 }
 
+/** Which variants a run asks about: some length levels only, with or without the position series. */
+export interface H3Selection {
+  levels?: string[];
+  position?: boolean;
+}
+
 /**
  * Asks the model to extract the routes of every variant, as task (a) does
  * in the method, but always with the whole file, and records for each route
  * whether it was found, with the prompt's length in the model's own tokens.
+ * A selection keeps the cost down, e.g. three length levels without the
+ * position series for the cloud model.
  */
-export async function runH3(outDir: string, config: TargetConfig, client: LlmClient, counter: LlmProvider): Promise<H3Row[]> {
+export async function runH3(outDir: string, config: TargetConfig, client: LlmClient, counter: LlmProvider, selection: H3Selection = {}): Promise<H3Row[]> {
   const manifest = loadManifest(outDir);
-  const chunks = manifest.variants.map((v) => {
+  const chosen = manifest.variants.filter((v) =>
+    v.series === "length" ? selection.levels === undefined || selection.levels.includes(v.level) : selection.position !== false,
+  );
+  const chunks = chosen.map((v) => {
     const text = readFileSync(join(outDir, v.file), "utf8");
     const [chunk] = chunksOf({ repo: "main", path: v.path, text, components: ["rocketchat"] }, { enabled: false, maxTokens: 1 });
     return { v, chunk: chunk as NonNullable<typeof chunk> };

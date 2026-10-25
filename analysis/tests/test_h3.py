@@ -31,6 +31,17 @@ def test_gee_finds_the_fall_only_where_it_exists():
     assert rho.loc["a", "rho"] < 0
 
 
+def test_each_model_on_its_own_variants_and_no_fall_without_misses():
+    df = synthetic()
+    # model a runs a smaller kit (three lengths), model b finds every route
+    a = df[(df["model"] == "a") & df["tokens"].isin([1000, 8000, 32000])]
+    b = df[df["model"] == "b"].assign(found=1)
+    slopes = gee_length(pd.concat([a, b])).set_index("model")
+    assert slopes.loc["a", "falls"] and slopes.loc["a", "slope"] < 0
+    assert not slopes.loc["b", "falls"] and slopes.loc["b", "p_fall"] == 1.0
+    assert decision(slopes.reset_index()) == PARTIAL
+
+
 def test_report_runs_hypothesis_3_alone_and_keeps_the_series_apart(tmp_path):
     import json
 
