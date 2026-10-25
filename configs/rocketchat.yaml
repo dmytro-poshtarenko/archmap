@@ -101,8 +101,10 @@ llm:
       - 'WebApp\.(?:connectHandlers|rawConnectHandlers)\.use\('
       - '\.(?:get|post|put|patch|delete|all|use)\(\s*[''"`]/'
   resolve: { mode: select, candidates: 5, contextLines: 40 }
-  # decided by hypothesis 3 before the freeze, per model
-  chunking: { local: false, cloud: false, maxTokens: 6000 }
+  # decided by hypothesis 3 before the freeze, per model: qwen3 recall falls with
+  # file length (GEE slope -0.65, p = 0.004, 2026-10-21), so its long files are split;
+  # the cloud model waits for its own H3 run
+  chunking: { local: true, cloud: false, maxTokens: 6000 }
   stability: { share: 0.1, repeats: 3 }
   budgetUsd: 60
 
