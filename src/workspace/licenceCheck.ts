@@ -13,8 +13,13 @@ export const WINDOW = 6;
 /** Normalised lines shorter than this carry too little to count. */
 export const MIN_LINE_LENGTH = 10;
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
-const ALGORITHM = { version: 1, window: WINDOW, minLine: MIN_LINE_LENGTH };
-const SKIPPED_FILES = /(^|\/)(yarn\.lock|pnpm-lock\.yaml|package-lock\.json)$|\.(lock|map|snap)$/;
+const ALGORITHM = { version: 2, window: WINDOW, minLine: MIN_LINE_LENGTH };
+/**
+ * Lock files, source maps and snapshots, and licence texts: the warranty
+ * disclaimer of the MIT licence is in the Enterprise licence too, and a
+ * project's own licence is legal boilerplate, not protected code.
+ */
+const SKIPPED_FILES = /(^|\/)(yarn\.lock|pnpm-lock\.yaml|package-lock\.json)$|\.(lock|map|snap)$|(^|\/)(licen[cs]e|copying|notice)(\.[a-z]+)?$/i;
 
 export interface Finding {
   file: string;

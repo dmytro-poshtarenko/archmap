@@ -57,6 +57,18 @@ describe("licence-check", () => {
     expect(existsSync(env.layout.fingerprints)).toBe(false);
   });
 
+  it("treats licence texts as boilerplate, not protected code", () => {
+    const env = setup();
+    // the MIT warranty disclaimer is in the Enterprise licence too
+    const disclaimer = Array.from({ length: 8 }, (_, i) => `THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, clause ${i}.`).join("\n");
+    writeTree(env.root, { "up/ee/LICENSE": `${disclaimer}\n` });
+    const scan = join(env.root, "tool");
+    gitRepo(scan, { LICENSE: `MIT License\n\n${disclaimer}\n`, "docs/LICENSE.md": `${disclaimer}\n` });
+    const result = licenceCheck(env.config, env.layout, env.configPath, { scanRoot: scan, allowHeldout: false });
+    expect(result.protectedRepos[0]?.files).toBe(1);
+    expect(result.findings).toEqual([]);
+  });
+
   it("scans plain directories too", () => {
     const env = setup();
     const scan = join(env.root, "export");
