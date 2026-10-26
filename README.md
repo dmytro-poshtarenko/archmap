@@ -367,4 +367,4 @@ pnpm test:system      # invariants on the pinned Rocket.Chat snapshot (needs fet
 cd analysis && uv run pytest
 ```
 
-Design notes for each milestone are in `docs/`.
+The system test, a full run from a clean clone, and its results are in `docs/system-test.md`. Design notes for each milestone are in `docs/`.
