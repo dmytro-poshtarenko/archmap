@@ -58,8 +58,11 @@ def test_report_runs_hypothesis_3_alone_and_keeps_the_series_apart(tmp_path):
         pd.concat([df[df["model"] == model], pos[pos["model"] == model]]).to_csv(f, index=False)
         files.append(str(f))
     out = tmp_path / "out"
-    assert main(["--target", "toy", "--h3", *files, "--out", str(out)]) == 0
+    data = tmp_path / "data"
+    assert main(["--target", "toy", "--h3", *files, "--out", str(out), "--data", str(data)]) == 0
     summary = json.loads((out / "summary.json").read_text())
     assert summary["h3"]["verdict"] == PARTIAL
     assert summary["h3"]["split_files_for"] == {"a": True, "b": False}
+    # the decision the freeze checks goes to the data workspace given, never to the real one
+    assert json.loads((data / "out" / "toy" / "h3" / "decision.json").read_text())["splitFilesFor"] == {"a": True, "b": False}
     assert (out / "h3_position.csv").exists() and (out / "h3_length.svg").exists()

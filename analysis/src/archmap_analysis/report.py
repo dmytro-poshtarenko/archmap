@@ -10,6 +10,7 @@ checks whose runs are given, and the figures as SVG and PNG.
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 import matplotlib
@@ -180,7 +181,11 @@ def parse_pairs(items: list[str] | None) -> dict[str, str]:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="archmap_analysis.report", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--data", default=str(Path(__file__).resolve().parents[4] / "data"), help="data workspace (default: magister-diplom/data)")
+    ap.add_argument(
+        "--data",
+        default=os.environ.get("ARCHMAP_DATA") or str(Path(__file__).resolve().parents[4] / "data"),
+        help="data workspace (default: $ARCHMAP_DATA, else ../data next to the tool, as for archmap)",
+    )
     ap.add_argument("--target", required=True)
     ap.add_argument("--split", default="dev")
     ap.add_argument("--runs", nargs="*", default=[], help="evaluated runs; the first is the reference for McNemar")
