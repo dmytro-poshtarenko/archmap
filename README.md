@@ -16,7 +16,7 @@ section, [The thesis: measurements on Rocket.Chat](#the-thesis-measurements-on-r
 ## Quick start
 
 ```bash
-npm install -g https://github.com/<account>/archmap/archive/refs/heads/main.tar.gz
+npm install -g https://github.com/dmytro-poshtarenko/archmap/archive/refs/heads/main.tar.gz
 cd /path/to/your/system
 archmap init
 archmap map --open
@@ -251,7 +251,7 @@ the method before the test split is opened. The target is described by
 | helm-charts | `eea375d7a9b74b98066d8681f6ba9715ec6340ef` |
 
 **Reference.**
-- One annotator labelled the call sites blind, by `docs/labelling-guide.md`: 135 on the dev split, 265 on the test split and 76 in the held-out mobile client.
+- One annotator labelled the call sites blind, by `docs/labelling-guide.md`: 135 on the dev split, 265 on the test split and 76 in the held-out mobile client. The labels are in `reference/`.
 - There was no second annotator, so agreement between annotators was not measured.
 - **Freeze.** The method was tuned on dev only and frozen with the tag `freeze-1` (method commit `f1b88f2`) before the test split was opened.
 - **Audit.** Every evaluation is in `audit/evaluations.jsonl`, with its run, split, comparison mode, metrics, tool commit and config hash.
@@ -382,7 +382,7 @@ Every evaluation is appended to `audit/evaluations.jsonl`. Entries since 2026-10
 
 ### Reproducing the measurements
 
-The labels are published without code: repository, commit, path, line, type, target and case (`pnpm archmap label export`). With them:
+The labels are in `reference/`, without code: repository, commit, path, line, type, target and case. With them:
 
 ```bash
 git checkout freeze-1                       # the frozen method
@@ -390,13 +390,14 @@ pnpm install && (cd analysis && uv sync)
 pnpm archmap fetch && pnpm archmap inventory          # the pinned commits
 pnpm archmap extract && pnpm archmap extract-infra
 pnpm archmap label candidates && pnpm archmap label sample   # the same frame and sample: fixed seeds
-pnpm archmap label import --split test --file test-labels.jsonl
+pnpm archmap label import --split test --file reference/test.jsonl
 pnpm archmap run-all --model cloud-cli --split test   # or --model cloud with an API key, or --model local
 ```
 
 **The model's answers.**
 - Asked again, Opus 5.5 may answer a few requests differently: it takes no temperature, and free search was the least stable task (above).
-- With the recorded answers, `--model replay-cloud-cli` reproduces every number of the table. Replays of both models gave metrics identical to the first evaluation, to the last digit.
+- The author's recorded answers reproduce every number of the table with `--model replay-cloud-cli`: replays of both models gave metrics identical to the first evaluation, to the last digit. They are not in this repository.
+- Asked again from scratch, the cloud model linked 3 of 5,250 sites differently, none of them in the labelled sample (`docs/system-test.md`).
 
 **The baseline:**
 
