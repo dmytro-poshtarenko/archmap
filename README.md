@@ -208,8 +208,11 @@ two servers. To use them from any project:
 
 ```bash
 claude mcp add archmap -- pnpm -C /path/to/tool -s archmap mcp
-claude mcp add likec4 -- npx -y likec4@1.59.4 mcp /path/to/data/out/rocketchat/current
+claude mcp add likec4 -- pnpm -C /path/to/tool -s archmap likec4-mcp
 ```
+
+For another codebase, pass its config to both, e.g. `archmap --config /path/to/target.yaml mcp`.
+`likec4-mcp` serves the map built last for that config, with the LikeC4 version the tool pins.
 
 | Server | Tools |
 |---|---|
@@ -320,6 +323,41 @@ The tool is MIT-licensed.
 - it is never sent to the cloud model: `llm.cloud.sendNonPublishable` is off,
   and only the local model reads it;
 - the MCP server lists no address from it.
+
+## LikeC4
+
+The map is LikeC4 source text that archmap writes; nothing in LikeC4 is patched.
+
+**What the tool uses.** archmap uses LikeC4 in three ways:
+- **the language:** `src/map/dsl.ts` and `src/map/feature.ts` write it;
+- **the API:** `LikeC4.fromWorkspace` validates a map and computes its views;
+- **the command-line tool:** `likec4 start` behind `archmap view`, and `likec4 mcp` behind `archmap likec4-mcp`.
+
+The API and the command-line tool are used only in `src/map/likec4.ts`.
+
+**The version** is pinned exactly in `package.json` (`likec4` 1.59.4) and in `pnpm-lock.yaml`. Nothing changes until someone changes it.
+
+**What the tests hold.** The map tests run LikeC4 itself on mini-complex. They check:
+- the model has no diagnostics;
+- every view title starts with its C4 level;
+- no arrow is labelled `[...]`;
+- the C2 view draws only the summary arrows;
+- a feature view draws the arrows the generator expects;
+- `likec4-mcp` starts LikeC4's MCP server of the pinned version.
+
+**To upgrade LikeC4:**
+
+```bash
+pnpm add likec4@<version> --save-exact
+pnpm test
+pnpm archmap build-map
+pnpm archmap view
+```
+
+1. Install the new version with `--save-exact`.
+2. Run `pnpm test`. A failure names what the new version draws differently.
+3. Rebuild the map and look at the C1, C2 and a feature view in the viewer.
+4. Retake screenshots if the look has changed.
 
 ## Tests
 

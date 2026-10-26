@@ -127,25 +127,35 @@ export function featureRelations(graph: MapGraph, f: Feature): MapRelation[] {
 }
 
 /**
+ * The arrows a feature view draws, as LikeC4 draws them: one per pair of
+ * boxes, standing for every relation between them. The tests hold this
+ * against LikeC4's own computed view.
+ */
+export function featureArrows(graph: MapGraph, f: Feature): Array<{ source: string; target: string; relations: MapRelation[] }> {
+  const { at } = drawnAs(f);
+  const pairs = new Map<string, MapRelation[]>();
+  for (const r of featureRelations(graph, f)) {
+    const key = `${at(r.source)}|${at(r.target)}`;
+    pairs.set(key, [...(pairs.get(key) ?? []), r]);
+  }
+  return [...pairs].map(([key, relations]) => {
+    const [source, target] = key.split("|") as [string, string];
+    return { source, target, relations };
+  });
+}
+
+/**
  * The arrows of a feature view that stand for several relations with
  * different titles, which LikeC4 would label `[...]`, with the title and
  * protocol they get instead. An arrow into a container drawn open is left as
  * it is: the view rule for it would also draw the calls to its hidden elements.
  */
 export function mergedArrows(graph: MapGraph, f: Feature): Array<{ source: string; target: string; title: string; technology: string }> {
-  const { at, open } = drawnAs(f);
-  const pairs = new Map<string, MapRelation[]>();
-  for (const r of featureRelations(graph, f)) {
-    const key = `${at(r.source)}|${at(r.target)}`;
-    pairs.set(key, [...(pairs.get(key) ?? []), r]);
-  }
+  const { open } = drawnAs(f);
   const external = new Set(graph.elements.filter((e) => e.kind === "external").map((e) => e.id));
-  return [...pairs]
-    .filter(([key, rs]) => new Set(rs.map((r) => r.title)).size > 1 && !open(key.split("|")[1] as string))
-    .map(([key, rs]) => {
-      const [source, target] = key.split("|") as [string, string];
-      return { source, target, ...mergedArrow(rs, external.has(target)) };
-    });
+  return featureArrows(graph, f)
+    .filter((a) => new Set(a.relations.map((r) => r.title)).size > 1 && !open(a.target))
+    .map((a) => ({ source: a.source, target: a.target, ...mergedArrow(a.relations, external.has(a.target)) }));
 }
 
 export function renderFeature(graph: MapGraph, f: Feature, req: FeatureRequest, run: string): string {

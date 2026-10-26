@@ -1,11 +1,10 @@
-import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import type { Command } from "commander";
 import { reader } from "../../llm/run.js";
 import { featureRelations } from "../../map/feature.js";
 import type { RelationKind } from "../../map/graph.js";
+import { runLikec4 } from "../../map/likec4.js";
 import { addFeatureView, buildMap, currentMapDir, currentMapRun, defaultMapRun, graphOf, MODEL_FILE, mapDir, removeFeatureView } from "../../map/run.js";
 import { createContext, type GlobalOptions } from "../context.js";
 
@@ -89,16 +88,12 @@ export function registerMap(program: Command): void {
     .description("open the map in the LikeC4 viewer: a local web server with the system map, a view of each part and the feature views")
     .option("--run <id>", "run whose map to open (default: the map built last)")
     .option("--port <n>", "port of the viewer", "5173")
-    .action((opts: { run?: string; port: string }, cmd: Command) => {
+    .action(async (opts: { run?: string; port: string }, cmd: Command) => {
       const ctx = createContext(cmd.optsWithGlobals<GlobalOptions>());
       const { name } = ctx.loaded.config;
       const dir = opts.run ? mapDir(ctx.layout.root, name, opts.run) : currentMapDir(ctx.layout.root, name);
       if (!existsSync(join(dir, MODEL_FILE))) throw new Error(`no map in ${dir}; run \`archmap build-map\` first`);
-      const bin = join(dirname(createRequire(import.meta.url).resolve("likec4/package.json")), "bin", "likec4.mjs");
       console.log(`LikeC4 viewer for ${dir} on http://localhost:${opts.port}`);
-      const child = spawn(process.execPath, [bin, "start", dir, "--port", opts.port], { stdio: "inherit" });
-      child.on("exit", (code) => {
-        process.exitCode = code ?? 0;
-      });
+      process.exitCode = await runLikec4(["start", dir, "--port", opts.port]);
     });
 }

@@ -7,7 +7,7 @@ import { type Db, getMeta } from "../store/db.js";
 import { renderModel } from "./dsl.js";
 import { type Feature, type FeatureRequest, featureOf, renderFeature, slugOf } from "./feature.js";
 import { buildGraph, type ExternalCall, type GatewayRoute, type MapGraph, SYSTEM } from "./graph.js";
-import { type Diagnostic, validateWorkspace } from "./validate.js";
+import { type Diagnostic, validateWorkspace } from "./likec4.js";
 
 /** The model file of a map: named so the viewer lists its C1, C2 and C3 views before the feature views. */
 export const MODEL_FILE = "c4-model.c4";

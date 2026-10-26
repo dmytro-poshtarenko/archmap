@@ -152,10 +152,29 @@ scenarios in `test/map/map.test.ts`.
 | `create_feature_view({name, seeds, depth, kinds?, direction?, run?})` | Adds and validates a feature view. It returns the parts, the links between them with their routes, and the viewer address of the view. |
 | `delete_feature_view({view, run?})` | Removes a feature view, by its view id or the name it was made with. |
 
-`.mcp.json` registers it next to LikeC4's own read-only server
-(`likec4 mcp ../data/out/rocketchat/current`, built into the LikeC4 CLI).
+`.mcp.json` registers it next to LikeC4's own read-only server. `archmap likec4-mcp` starts
+that server on the map built last for the config, with the pinned LikeC4,
+so the entry does not name a target or a version.
 `rebuild_map` uses the cloud model of the config by default, from recorded
 answers only.
 
-The test `test/map/map.test.ts` starts the server as a subprocess and calls
-all three tools through the MCP client over stdio.
+The test `test/map/map.test.ts` starts both servers as subprocesses over
+stdio. It calls the four archmap tools, and it checks that LikeC4's server
+reports the pinned version and lists the map.
+
+## Dependence on LikeC4
+
+- **No patches.** Nothing in LikeC4 is patched. On 2026-10-26 every file of `likec4` and `@likec4/core` 1.59.4 in `node_modules` matched the published package by SHA-512.
+- **The language.** The generator writes LikeC4 source text.
+- **One module for the rest.** `src/map/likec4.ts` is the only code that calls LikeC4's API or command-line tool:
+  - `validateWorkspace` and `computedViews` use `LikeC4.fromWorkspace`;
+  - `runLikec4` starts the script that the package's `bin` field names, not a hard-coded path.
+- **Pinned version.** `package.json` pins the exact version, and so does the lockfile.
+- **Contract test.** It runs LikeC4 on mini-complex, then compares LikeC4's computed views with what the generator means:
+  - every title has its C4 level;
+  - no arrow is labelled `[...]`;
+  - the C2 view has only summary arrows;
+  - a feature view has the arrows that `featureArrows` predicts, the merged one with the view's title.
+
+  Changing the generator so that LikeC4 labels the merged arrow `[...]` fails this test. That shows the test can catch a LikeC4 upgrade that changes how arrows are merged.
+- **Upgrade.** The procedure is in the README, section LikeC4.

@@ -9,11 +9,11 @@
       ]
     },
     "likec4": {
-      "command": "npx",
+      "command": "pnpm",
       "args": [
-        "likec4",
-        "mcp",
-        "../data/out/rocketchat/current"
+        "-s",
+        "archmap",
+        "likec4-mcp"
       ]
     }
   }

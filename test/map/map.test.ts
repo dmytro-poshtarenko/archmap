@@ -9,10 +9,11 @@ import { dataLayout, toolRoot } from "../../src/core/paths.js";
 import { programOf, runExtraction } from "../../src/extract/run.js";
 import { extractInfra, writeInfra } from "../../src/infra/index.js";
 import { renderModel } from "../../src/map/dsl.js";
-import { featureOf, mergedArrows, renderFeature, slugOf } from "../../src/map/feature.js";
+import { featureArrows, featureOf, mergedArrows, renderFeature, slugOf } from "../../src/map/feature.js";
 import { buildGraph, type MapElement, type MapGraph } from "../../src/map/graph.js";
 import { reader } from "../../src/llm/run.js";
-import { addFeatureView, buildMap, MODEL_FILE } from "../../src/map/run.js";
+import { computedViews } from "../../src/map/likec4.js";
+import { addFeatureView, buildMap, currentMapDir, MODEL_FILE, mapDir } from "../../src/map/run.js";
 import { runMatch } from "../../src/match/run.js";
 import { openDb } from "../../src/store/db.js";
 import { runInventory } from "../../src/workspace/inventory.js";
@@ -104,6 +105,32 @@ describe("the LikeC4 map", () => {
     expect(view).toContain("description 'Seeds: /api/orders*; 2 hops both ways; kinds: all; run no-llm.'");
     // endpoint groups inside the api make it a C3 view
     expect(view).toContain("title 'C3: Orders'");
+  }, 60_000);
+
+  it("renders in LikeC4 as the generator means it, which a LikeC4 upgrade must keep", async () => {
+    const { db, config, data, read } = await workspace();
+    const dir = join(data, "likec4");
+    const { graph } = await buildMap(db, config, "no-llm", dir, { read });
+    // with the api closed, LikeC4 draws the web client's calls to two of its groups as one arrow
+    const { feature, diagnostics } = await addFeatureView(graph, dir, { name: "Web client", seeds: ["web", "api"], depth: 1 }, "no-llm");
+    expect(diagnostics).toEqual([]);
+    const views = await computedViews(dir);
+    // every view names its C4 level
+    expect(views.filter((v) => !/^C[1-3]: /.test(v.title ?? "")).map((v) => v.id)).toEqual([]);
+    // no arrow keeps LikeC4's [...] label
+    expect(views.flatMap((v) => v.edges.filter((e) => e.label === "[...]").map((e) => `${v.id}: ${e.source} -> ${e.target}`))).toEqual([]);
+    // the C2 view draws the summary arrows and nothing else
+    expect(views.find((v) => v.id === "index")?.edges.map((e) => [e.source, e.target, e.label, e.relations]).sort()).toEqual(
+      [
+        ["web", "api", "REST: orders, users (5 routes)", 1],
+        ["worker", "api", "REST: /api/orders/:id", 1],
+        ["api", "worker", "events: emails (1)", 1],
+      ].sort(),
+    );
+    // a feature view draws the arrows the generator expects, the merged one with the view's title
+    const drawn = views.find((v) => v.id === `feature_${feature.slug}`);
+    expect(drawn?.edges.map((e) => [e.source, e.target, e.relations]).sort()).toEqual(featureArrows(graph, feature).map((a) => [a.source, a.target, a.relations.length]).sort());
+    expect(drawn?.edges.find((e) => e.source === "web" && e.target === "api")).toMatchObject({ label: "REST: orders, users (5 routes)", technology: "HTTP via traefik", relations: 2 });
   }, 60_000);
 
   it("gives a feature view an id from its name", () => {
@@ -259,6 +286,29 @@ describe("the archmap MCP server", () => {
 
       const removed = text(await client.callTool({ name: "delete_feature_view", arguments: { view: "Orders", run: "no-llm" } }));
       expect(removed).toEqual({ removed: "feature_orders", run: "no-llm" });
+    } finally {
+      await client.close();
+    }
+  }, 120_000);
+
+  it("serves LikeC4's own MCP server, of the pinned version, on the map built last", async () => {
+    const { db, config, data, read } = await workspace();
+    const root = dataLayout(data).root;
+    await buildMap(db, config, "no-llm", mapDir(root, config.name, "no-llm"), { read, current: currentMapDir(root, config.name) });
+    db.close();
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: ["--import", "tsx", join(toolRoot, "src", "cli", "index.ts"), "--config", MINI, "--data", data, "likec4-mcp"],
+      cwd: toolRoot,
+      stderr: "ignore",
+    });
+    const client = new Client({ name: "test", version: "1.0.0" });
+    await client.connect(transport);
+    try {
+      expect(client.getServerVersion()).toMatchObject({ name: "LikeC4", version: JSON.parse(readFileSync(join(toolRoot, "package.json"), "utf8")).dependencies.likec4 });
+      expect((await client.listTools()).tools.map((t) => t.name)).toEqual(expect.arrayContaining(["list-projects", "read-view", "find-relationships"]));
+      const projects = (await client.callTool({ name: "list-projects", arguments: {} })).structuredContent as { projects: Array<{ title: string }> };
+      expect(projects.projects.map((p) => p.title)).toEqual(["mini: C4 Diagrams"]);
     } finally {
       await client.close();
     }
