@@ -67,9 +67,10 @@ describe("freezing the method", () => {
     mkdirSync(join(data, "reports", "rehearsal", "dev"), { recursive: true });
     writeFileSync(join(data, "reports", "rehearsal", "dev", "summary.json"), "{}\n");
     mkdirSync(join(data, "out", "rehearsal", "h3"), { recursive: true });
-    writeFileSync(join(data, "out", "rehearsal", "h3", "decision.json"), JSON.stringify({ splitFilesFor: { [loaded.config.llm.local.model]: true } }));
-    expect(freezeProblems(input)).toEqual([expect.stringMatching(/llm\.chunking\.local is false/)]);
+    // a local model splits long files by default; hypothesis 3 deciding otherwise must reach the config
     writeFileSync(join(data, "out", "rehearsal", "h3", "decision.json"), JSON.stringify({ splitFilesFor: { [loaded.config.llm.local.model]: false } }));
+    expect(freezeProblems(input)).toEqual([expect.stringMatching(/llm\.chunking\.local is true/)]);
+    writeFileSync(join(data, "out", "rehearsal", "h3", "decision.json"), JSON.stringify({ splitFilesFor: { [loaded.config.llm.local.model]: true } }));
     expect(freezeProblems(input)).toEqual([]);
 
     // before the freeze: the test labels stay closed and the held-out repository stays out

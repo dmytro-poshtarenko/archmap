@@ -111,10 +111,12 @@ export const LlmConfig = z.strictObject({
   /**
    * Long files are split into parts on top-level statements, for each model
    * separately: hypothesis 3 decides, and splitting is switched on only for
-   * a model whose extraction falls with the length of the file.
+   * a model whose extraction falls with the length of the file. Without that
+   * run a local model splits, as Qwen3's did and a short context needs; a
+   * cloud model does not.
    */
   chunking: z
-    .strictObject({ local: z.boolean().default(false), cloud: z.boolean().default(false), maxTokens: z.number().int().positive().default(6000) })
+    .strictObject({ local: z.boolean().default(true), cloud: z.boolean().default(false), maxTokens: z.number().int().positive().default(6000) })
     .prefault({}),
   /** A share of the requests is repeated to measure how stable the answers are. */
   stability: z.strictObject({ share: z.number().min(0).max(1).default(0.1), repeats: z.number().int().min(1).default(3) }).prefault({}),

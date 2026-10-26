@@ -124,8 +124,7 @@
 | (c) free | `archmap resolve --mode free` | The same, without candidates | `{target: {kind, method, name, component} \| null, confidence}` |
 | (d) memorisation probe | used by milestone M8 | Project and file path only | The routes the model recalls |
 
-- **Long files** are split only when `llm.chunking.enabled` is on (hypothesis
-  3 decides):
+- **Long files** are split for each model as `llm.chunking.local` and `llm.chunking.cloud` say. Hypothesis 3 decides for a measured model. Without that decision, a local model splits, as Qwen3 needed and a short context needs, and a cloud model does not. Splitting works like this:
   - top-level statements are packed into parts of at most `maxTokens`;
   - a call too long on its own (`Meteor.methods({ … })`) is split between its
     properties, each part repeating the opening line.
