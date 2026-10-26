@@ -11,7 +11,7 @@ import { extractInfra, writeInfra } from "../../src/infra/index.js";
 import { renderModel } from "../../src/map/dsl.js";
 import { featureOf, slugOf } from "../../src/map/feature.js";
 import type { MapElement, MapGraph } from "../../src/map/graph.js";
-import { addFeatureView, buildMap } from "../../src/map/run.js";
+import { addFeatureView, buildMap, MODEL_FILE } from "../../src/map/run.js";
 import { runMatch } from "../../src/match/run.js";
 import { openDb } from "../../src/store/db.js";
 import { runInventory } from "../../src/workspace/inventory.js";
@@ -53,13 +53,18 @@ describe("the LikeC4 map", () => {
     expect(rel("traefik", "web")).toMatchObject({ kind: "route", title: "/", tags: ["infra"] });
     expect(rel("traefik", "api")).toMatchObject({ kind: "route", title: "/api" });
     expect(graph.elements.find((e) => e.id === "traefik")?.description).toBe("Gateway. Routes /api to api. Routes / to web.");
-    const text = readFileSync(join(dir, "model.c4"), "utf8");
+    const text = readFileSync(join(dir, MODEL_FILE), "utf8");
     expect(text).toContain("view index");
     expect(text).not.toMatch(/fetch\(|http\.get\(/);
     // a developer hovering an element or an arrow sees what is behind it
     expect(graph.elements.find((e) => e.id === "worker")?.description).toBe("Service. Uses api. Receives events from redis.");
     expect(rel("web", "api.ep_orders")?.description).toMatch(/^GET \/api\/orders.*Decided by rules; 3 call sites\.$/);
     expect(text).toContain("Arrows: http solid blue");
+    // each view names its level of the C4 model
+    expect(text).toContain("view context {\n    title 'C1: mini system context'");
+    expect(text).toContain("view index {\n    title 'C2: mini containers and the links between them'");
+    expect(text).toContain("exclude system");
+    expect(JSON.parse(readFileSync(join(dir, "likec4.config.json"), "utf8"))).toEqual({ name: "mini", title: "mini: C4 Diagrams" });
   }, 60_000);
 
   it("finds the parts of a feature: a scenario fixed before the run", async () => {
@@ -78,13 +83,19 @@ describe("the LikeC4 map", () => {
     const view = readFileSync(join(dir, `feature_${feature.slug}.c4`), "utf8");
     expect(view).toContain("include api.ep_orders, api.ep_users, redis, traefik, web, worker");
     expect(view).toContain("description 'Seeds: /api/orders*; 2 hops both ways; kinds: all; run no-llm.'");
+    // endpoint groups inside the api make it a C3 view
+    expect(view).toContain("title 'C3: Orders'");
   }, 60_000);
 
-  it("names a feature view in Latin letters whatever the language of its name", () => {
+  it("gives a feature view an id from its name", () => {
     expect(slugOf("Orders & payments")).toBe("orders_payments");
-    expect(slugOf("Надсилання повідомлень")).toBe("nadsylannia_povidomlen");
-    expect(slugOf("Присутність")).toBe("prysutnist");
+    // the C4 level is the map's to add
+    expect(slugOf("C3: Orders & payments")).toBe("orders_payments");
+    // what follows a parenthesis explains the view and stays out of its id
+    expect(slugOf("User presence (presence actions, callers, sessions)")).toBe("user_presence");
+    // a name with no Latin letters or digits still gets an id of its own
     expect(slugOf("🙂")).toMatch(/^feature_[0-9a-f]{8}$/);
+    expect(slugOf("🙂")).not.toBe(slugOf("🙃"));
   });
 
   it("keeps the view of a large part readable", () => {
@@ -112,7 +123,7 @@ describe("the LikeC4 map", () => {
 });
 
 describe("the archmap MCP server", () => {
-  it("serves its three tools over stdio", async () => {
+  it("serves its four tools over stdio", async () => {
     const { data, db } = await workspace();
     db.close();
     const transport = new StdioClientTransport({
@@ -125,7 +136,7 @@ describe("the archmap MCP server", () => {
     await client.connect(transport);
     try {
       const tools = (await client.listTools()).tools.map((t) => t.name).sort();
-      expect(tools).toEqual(["create_feature_view", "list_unresolved", "rebuild_map"]);
+      expect(tools).toEqual(["create_feature_view", "delete_feature_view", "list_unresolved", "rebuild_map"]);
       const text = (r: unknown) => JSON.parse(((r as { content: Array<{ text: string }> }).content[0] as { text: string }).text);
 
       const rebuilt = text(await client.callTool({ name: "rebuild_map", arguments: { variant: "no-llm" } }));
@@ -139,6 +150,9 @@ describe("the archmap MCP server", () => {
       expect(view).toMatchObject({ view: "feature_orders", elements: ["api.ep_orders", "api.ep_users", "redis", "traefik", "web", "worker"], diagnostics: [] });
       expect(view.open).toMatch(/^http:\/\/localhost:5173\/view\/feature_orders\//);
       expect(view.links).toContainEqual(expect.objectContaining({ from: "web", to: "api.ep_orders", kind: "http" }));
+
+      const removed = text(await client.callTool({ name: "delete_feature_view", arguments: { view: "Orders", run: "no-llm" } }));
+      expect(removed).toEqual({ removed: "feature_orders", run: "no-llm" });
     } finally {
       await client.close();
     }

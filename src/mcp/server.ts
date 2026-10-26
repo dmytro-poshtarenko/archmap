@@ -9,7 +9,7 @@ import { providerOf } from "../llm/providers/index.js";
 import { reader, runResolve } from "../llm/run.js";
 import { featureRelations } from "../map/feature.js";
 import type { RelationKind } from "../map/graph.js";
-import { addFeatureView, buildMap, currentMapDir, currentMapRun, defaultMapRun, graphOf, mapDir } from "../map/run.js";
+import { addFeatureView, buildMap, currentMapDir, currentMapRun, defaultMapRun, graphOf, mapDir, removeFeatureView } from "../map/run.js";
 import { runMatch } from "../match/run.js";
 import type { Db } from "../store/db.js";
 
@@ -167,6 +167,26 @@ export function createServer(ctx: McpContext): McpServer {
           unmatched: feature.unmatched,
           diagnostics,
         });
+      } catch (error) {
+        return failure(error);
+      } finally {
+        db.close();
+      }
+    },
+  );
+
+  server.registerTool(
+    "delete_feature_view",
+    {
+      title: "Delete a feature view",
+      description: "Removes a feature view from the map, by its view id (feature_user_presence) or the name it was made with.",
+      inputSchema: { view: z.string().min(1), run: z.string().optional() },
+    },
+    async ({ view, run }) => {
+      const db = ctx.openDb();
+      try {
+        const drawn = run ?? currentMapRun(ctx.layout.root, config.name) ?? defaultMapRun(db);
+        return json({ removed: removeFeatureView(mapDir(ctx.layout.root, config.name, drawn), view), run: drawn });
       } catch (error) {
         return failure(error);
       } finally {

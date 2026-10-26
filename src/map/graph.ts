@@ -15,12 +15,30 @@ export interface GatewayRoute {
   sources: string[];
 }
 
+/** A call the method recognised as going outside the system, with the URL it reaches. */
+export interface ExternalCall {
+  site: string;
+  url: string;
+  components: string[];
+}
+
+/** What the map adds to the links: the gateways' rules, the calls leaving the system, the product's name. */
+export interface MapExtras {
+  routing?: GatewayRoute[];
+  externals?: ExternalCall[];
+  /** The name the map gives the whole system, e.g. `Rocket.Chat`. */
+  product?: string;
+}
+
+/** Id of the element standing for the whole system on the C1 view. */
+export const SYSTEM = "system";
+
 export interface MapElement {
   /** LikeC4 name, unique among its siblings. */
   name: string;
   /** Full id: `parent.name` for nested elements. */
   id: string;
-  kind: "client" | "service" | "gateway" | "bus" | "database" | "collection" | "scheduler" | "external" | "endpointGroup";
+  kind: "system" | "client" | "service" | "gateway" | "bus" | "database" | "collection" | "scheduler" | "external" | "endpointGroup";
   title: string;
   /** What the element holds and which parts call it, shown when the element is hovered. */
   description?: string;
@@ -69,9 +87,12 @@ export function routeGroup(template: string): string {
  * each part still possible, tagged `#ambiguous`; an unresolved site draws
  * nothing. No code text reaches the map: titles name routes and counts, and
  * metadata holds cases, one call site and the run. A gateway's routing rules
- * draw a relation from the gateway to each part it sends requests to.
+ * draw a relation from the gateway to each part it sends requests to. Calls
+ * leaving the system go to one external element per domain, and the whole
+ * system is one more element, for the C1 view.
  */
-export function buildGraph(config: TargetConfig, run: string, sites: CallSite[], links: StoredLink[], routing: GatewayRoute[] = []): MapGraph {
+export function buildGraph(config: TargetConfig, run: string, sites: CallSite[], links: StoredLink[], extras: MapExtras = {}): MapGraph {
+  const routing = extras.routing ?? [];
   const elements = new Map<string, MapElement>();
   const put = (e: Omit<MapElement, "id" | "tags" | "metadata"> & { tags?: string[]; metadata?: Record<string, string> }) => {
     const id = e.parent ? `${e.parent}.${e.name}` : e.name;
@@ -193,10 +214,78 @@ export function buildGraph(config: TargetConfig, run: string, sites: CallSite[],
       sites: [],
     });
   }
+  out.push(...externalRelations(extras.externals ?? [], put, elements, run));
+  if (!elements.has(SYSTEM)) {
+    put({ name: SYSTEM, kind: "system", title: extras.product ?? config.name, parent: null });
+    out.push(...systemRelations(out, elements, run));
+  }
   out.sort((a, b) => (a.source + a.target + a.kind < b.source + b.target + b.kind ? -1 : 1));
   const list = [...elements.values()].sort((a, b) => (a.id < b.id ? -1 : 1));
   describeElements(list, out);
   return { elements: list, relations: out };
+}
+
+/** The organisation a host belongs to, as its last two labels: `translation.googleapis.com` → `googleapis.com`. */
+export function domainOf(host: string): string {
+  return host.split(".").slice(-2).join(".");
+}
+
+type Put = (e: Omit<MapElement, "id" | "tags" | "metadata"> & { tags?: string[]; metadata?: Record<string, string> }) => MapElement;
+
+/** Relations from the calling parts to one external element per domain. */
+function externalRelations(calls: ExternalCall[], put: Put, elements: Map<string, MapElement>, run: string): MapRelation[] {
+  const relations = new Map<string, MapRelation & { names: Set<string> }>();
+  for (const call of calls) {
+    let url: URL;
+    try {
+      url = new URL(call.url);
+    } catch {
+      continue;
+    }
+    const domain = domainOf(url.hostname);
+    const ext = put({ name: `ext_${ident(domain)}`, kind: "external", title: domain, parent: null });
+    ext.metadata.hosts = [...new Set([...(ext.metadata.hosts ?? "").split(", ").filter(Boolean), url.hostname])].sort().join(", ");
+    for (const from of call.components) {
+      const source = ident(from);
+      if (!elements.has(source)) continue;
+      const id = `${source}|${ext.id}`;
+      const r = relations.get(id) ?? { source, target: ext.id, kind: "http" as const, title: "", tags: [], metadata: {}, keys: [], sites: [], names: new Set<string>() };
+      r.names.add(`${url.hostname}${url.pathname}`);
+      if (!r.sites.includes(call.site)) r.sites.push(call.site);
+      relations.set(id, r);
+    }
+  }
+  return [...relations.values()].map(({ names, ...r }) => {
+    const sorted = [...names].sort();
+    return {
+      ...r,
+      title: sorted.length <= 2 ? sorted.join(", ") : `${sorted.slice(0, 2).join(", ")} (+${sorted.length - 2})`,
+      description: `${listed(sorted, 12)}. Outside the system; ${r.sites.length} call site${r.sites.length === 1 ? "" : "s"}.`,
+      metadata: { callsite: r.sites.sort()[0] ?? "", sites: String(r.sites.length), run },
+    };
+  });
+}
+
+/** For the C1 view: the whole system calls each external element its parts call. */
+function systemRelations(relations: MapRelation[], elements: Map<string, MapElement>, run: string): MapRelation[] {
+  const byTarget = new Map<string, MapRelation[]>();
+  for (const r of relations) if (elements.get(r.target)?.kind === "external" && r.source !== SYSTEM) byTarget.set(r.target, [...(byTarget.get(r.target) ?? []), r]);
+  return [...byTarget].map(([target, rs]) => {
+    const sites = [...new Set(rs.flatMap((r) => r.sites))].sort();
+    const callers = [...new Set(rs.map((r) => r.source))].sort();
+    const hosts = elements.get(target)?.metadata.hosts ?? "";
+    return {
+      source: SYSTEM,
+      target,
+      kind: "http" as const,
+      title: `${hosts.split(", ").slice(0, 2).join(", ")}${hosts.split(", ").length > 2 ? " …" : ""} (${sites.length} call${sites.length === 1 ? "" : "s"})`,
+      description: `Called from ${listed(callers, 6)}. Hosts: ${hosts}.`,
+      tags: [],
+      metadata: { sites: String(sites.length), run },
+      keys: [],
+      sites,
+    };
+  });
 }
 
 /** Names joined with commas, the rest counted: `a, b (+3 more)`. */
@@ -205,6 +294,7 @@ function listed(names: string[], limit: number): string {
 }
 
 const KIND_LABEL: Record<MapElement["kind"], string> = {
+  system: "Software system",
   client: "Client",
   service: "Service",
   gateway: "Gateway",
@@ -241,34 +331,65 @@ function describeElements(elements: MapElement[], relations: MapRelation[]): voi
       const incoming = relations.filter((r) => top(r.target) === e.id && top(r.source) !== e.id);
       const outgoing = relations.filter((r) => top(r.source) === e.id && top(r.target) !== e.id);
       const parts = (rs: MapRelation[], end: "source" | "target") => [...new Set(rs.map((r) => top(r[end])))].sort();
-      // events go publisher → bus → subscriber, and jobs scheduler → the part that runs them
-      const said: Array<[string, string[]]> =
-        e.kind === "bus"
-          ? [
-              ["Events from", parts(incoming, "source")],
-              ["Delivered to", parts(outgoing, "target")],
-            ]
-          : e.kind === "scheduler"
-            ? [["Runs jobs in", parts(outgoing, "target")]]
-            : e.kind === "gateway"
-              ? outgoing.filter((r) => r.kind === "route").map((r): [string, string[]] => [`Routes ${r.title} to`, [top(r.target)]])
-              : [
-                ["Used by", parts(incoming.filter((r) => r.kind !== "event" && r.kind !== "trigger" && r.kind !== "route"), "source")],
-                ["Receives requests through", parts(incoming.filter((r) => r.kind === "route"), "source")],
-                ["Uses", parts(outgoing.filter((r) => r.kind !== "event"), "target")],
-                ["Publishes events to", parts(outgoing.filter((r) => r.kind === "event"), "target")],
-                ["Receives events from", parts(incoming.filter((r) => r.kind === "event"), "source")],
-                ["Runs scheduled jobs from", parts(incoming.filter((r) => r.kind === "trigger"), "source")],
-              ];
+      const external = (id: string) => elements.find((x) => x.id === id)?.kind === "external";
+      const titled = (ids: string[]) => ids.map((id) => elements.find((x) => x.id === id)?.title ?? id);
+      const said = sentences(e, elements, { incoming, outgoing, parts, external, titled });
+      const hosts = e.kind === "external" && e.metadata.hosts ? ` (${e.metadata.hosts})` : "";
       e.description = [
-        `${KIND_LABEL[e.kind]}${held.length > 0 ? ` with ${held.join(", ")}` : ""}.`,
-        ...said.filter(([, names]) => names.length > 0).map(([verb, names]) => `${verb} ${listed(names, 6)}.`),
+        `${KIND_LABEL[e.kind]}${hosts}${held.length > 0 ? ` with ${held.join(", ")}` : ""}.`,
+        ...said.filter(([, names]) => names === null || names.length > 0).map(([verb, names]) => (names === null ? `${verb}.` : `${verb} ${listed(names, 6)}.`)),
       ].join(" ");
     } else {
       const names = [...new Set(relations.filter((r) => r.target === e.id || r.source === e.id).flatMap((r) => r.keys.map(displayKey)))].sort();
       const users = [...new Set(relations.filter((r) => r.target === e.id).map((r) => top(r.source)))].sort();
       e.description = [`${KIND_LABEL[e.kind]}: ${listed(names, 12)}.`, ...(users.length > 0 ? [`Used by ${listed(users, 6)}.`] : [])].join(" ");
     }
+  }
+}
+
+interface Ends {
+  incoming: MapRelation[];
+  outgoing: MapRelation[];
+  parts: (rs: MapRelation[], end: "source" | "target") => string[];
+  external: (id: string) => boolean;
+  titled: (ids: string[]) => string[];
+}
+
+/**
+ * Who a top-level element talks to, as (verb, names) pairs: events go
+ * publisher → bus → subscriber, jobs scheduler → the part that runs them,
+ * requests gateway → the part its rules name.
+ */
+function sentences(e: MapElement, elements: MapElement[], { incoming, outgoing, parts, external, titled }: Ends): Array<[string, string[] | null]> {
+  switch (e.kind) {
+    case "system": {
+      const containers = elements.filter((c) => c.parent === null && c.kind !== "system" && c.kind !== "external").length;
+      return [
+        [`Its ${containers} containers are on the C2 view`, null],
+        ["It calls", titled(parts(outgoing, "target"))],
+      ];
+    }
+    case "external":
+      return [["Called by", parts(incoming.filter((r) => r.source !== SYSTEM), "source")]];
+    case "bus":
+      return [
+        ["Events from", parts(incoming, "source")],
+        ["Delivered to", parts(outgoing, "target")],
+      ];
+    case "scheduler":
+      return [["Runs jobs in", parts(outgoing, "target")]];
+    case "gateway":
+      return outgoing.filter((r) => r.kind === "route").map((r): [string, string[] | null] => [`Routes ${r.title} to`, [r.target.split(".")[0] as string]]);
+    default:
+      return [
+        ["Used by", parts(incoming.filter((r) => r.kind !== "event" && r.kind !== "trigger" && r.kind !== "route"), "source")],
+        ["Receives requests through", parts(incoming.filter((r) => r.kind === "route"), "source")],
+        ["Uses", parts(outgoing.filter((r) => r.kind !== "event" && !external(r.target)), "target")],
+        ["Calls outside the system", titled(parts(outgoing.filter((r) => external(r.target)), "target"))],
+        ["Publishes events to", parts(outgoing.filter((r) => r.kind === "event"), "target")],
+        ["Receives events from", parts(incoming.filter((r) => r.kind === "event"), "source")],
+        ["Runs scheduled jobs from", parts(incoming.filter((r) => r.kind === "trigger"), "source")],
+      ];
   }
 }
 

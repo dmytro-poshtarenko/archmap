@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import type { Command } from "commander";
 import { featureRelations } from "../../map/feature.js";
 import type { RelationKind } from "../../map/graph.js";
-import { addFeatureView, buildMap, currentMapDir, currentMapRun, defaultMapRun, graphOf, mapDir } from "../../map/run.js";
+import { addFeatureView, buildMap, currentMapDir, currentMapRun, defaultMapRun, graphOf, MODEL_FILE, mapDir, removeFeatureView } from "../../map/run.js";
 import { createContext, type GlobalOptions } from "../context.js";
 
 const list = (v: string) => v.split(",").map((x) => x.trim()).filter(Boolean);
@@ -70,6 +70,17 @@ export function registerMap(program: Command): void {
     });
 
   program
+    .command("remove-view <view>")
+    .description("remove a feature view, by its view id (feature_user_presence) or the name it was made with")
+    .option("--run <id>", "run whose map holds the view (default: the map built last)")
+    .action((view: string, opts: { run?: string }, cmd: Command) => {
+      const ctx = createContext(cmd.optsWithGlobals<GlobalOptions>());
+      const { name } = ctx.loaded.config;
+      const dir = opts.run ? mapDir(ctx.layout.root, name, opts.run) : currentMapDir(ctx.layout.root, name);
+      console.log(`removed ${removeFeatureView(dir, view)}`);
+    });
+
+  program
     .command("view")
     .description("open the map in the LikeC4 viewer: a local web server with the system map, a view of each part and the feature views")
     .option("--run <id>", "run whose map to open (default: the map built last)")
@@ -78,7 +89,7 @@ export function registerMap(program: Command): void {
       const ctx = createContext(cmd.optsWithGlobals<GlobalOptions>());
       const { name } = ctx.loaded.config;
       const dir = opts.run ? mapDir(ctx.layout.root, name, opts.run) : currentMapDir(ctx.layout.root, name);
-      if (!existsSync(join(dir, "model.c4"))) throw new Error(`no map in ${dir}; run \`archmap build-map\` first`);
+      if (!existsSync(join(dir, MODEL_FILE))) throw new Error(`no map in ${dir}; run \`archmap build-map\` first`);
       const bin = join(dirname(createRequire(import.meta.url).resolve("likec4/package.json")), "bin", "likec4.mjs");
       console.log(`LikeC4 viewer for ${dir} on http://localhost:${opts.port}`);
       const child = spawn(process.execPath, [bin, "start", dir, "--port", opts.port], { stdio: "inherit" });

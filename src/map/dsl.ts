@@ -1,4 +1,4 @@
-import type { MapElement, MapGraph, MapRelation } from "./graph.js";
+import { type MapElement, type MapGraph, type MapRelation, SYSTEM } from "./graph.js";
 
 /** A LikeC4 string literal. */
 export function q(text: string): string {
@@ -6,6 +6,11 @@ export function q(text: string): string {
 }
 
 const SPECIFICATION = `specification {
+  element system {
+    style {
+      color indigo
+    }
+  }
   element client {
     style {
       shape browser
@@ -130,12 +135,40 @@ export const LEGEND =
 /** Beyond this many elements inside a part, its view lays them out top to bottom instead of in one long row. */
 const WIDE = 12;
 
-/** The model and the standard views: the whole system, and one view of each part with elements inside it. */
-export function renderModel(graph: MapGraph, title: string, description: string): string {
+/** Title of a view of one part, at C4 level 3: what the part holds and who uses it. */
+function partTitle(e: MapElement, filtered: boolean): string {
+  if (e.kind === "database") return `C3: ${e.title} (${filtered ? "collections shared by several containers" : "collections and the containers using them"})`;
+  return `C3: ${e.title} (API groups and their callers)`;
+}
+
+/**
+ * The model and its views at the levels of the C4 model: C1, the system and
+ * the external systems it calls; C2, the containers and the links between
+ * them; C3, one view of each container with elements inside it.
+ */
+export function renderModel(graph: MapGraph, product: string, description: string): string {
   const top = graph.elements.filter((e) => e.parent === null);
   const lines = [SPECIFICATION, "model {", ...top.flatMap((e) => element(e, [], graph.elements, "  ")), "", ...graph.relations.flatMap(relation), "}", ""];
   const scoped = top.filter((e) => graph.elements.some((c) => c.parent === e.id));
-  lines.push("views {", "  view index {", `    title ${q(title)}`, `    description ${q(`${description} ${LEGEND}`)}`, "    include *", "  }");
+  const externals = top.filter((e) => e.kind === "external");
+  lines.push("views {");
+  if (top.some((e) => e.id === SYSTEM && e.kind === "system")) {
+    lines.push(
+      "  view context {",
+      `    title ${q(externals.length > 0 ? `C1: ${product} and the external systems it calls` : `C1: ${product} system context`)}`,
+      `    description ${q(`${product} as one system and the systems outside it that its code calls, one per domain. ${externals.length > 0 ? "" : "The method found no calls outside the system."}`.trim())}`,
+      `    include ${[SYSTEM, ...externals.map((e) => e.id)].join(", ")}`,
+      "  }",
+    );
+  }
+  lines.push(
+    "  view index {",
+    `    title ${q(`C2: ${product} containers and the links between them`)}`,
+    `    description ${q(`${description} ${LEGEND}`)}`,
+    "    include *",
+    ...(top.some((e) => e.id === SYSTEM) ? [`    exclude ${SYSTEM}`] : []),
+    "  }",
+  );
   for (const e of scoped) {
     const inside = graph.elements.filter((c) => c.parent === e.id);
     // a database with many collections shows the ones two or more parts share: the interaction through a shared database
@@ -144,7 +177,7 @@ export function renderModel(graph: MapGraph, title: string, description: string)
     const note = hidden.length > 0 ? ` This view shows the ${shown} collections two or more parts share; ${hidden.length} collections used by one part are left out.` : "";
     lines.push(
       `  view of_${e.name} of ${e.id} {`,
-      `    title ${q(e.title)}`,
+      `    title ${q(partTitle(e, hidden.length > 0))}`,
       `    description ${q(`${e.description ?? ""}${note}`.trim())}`,
       "    include *",
       ...(hidden.length > 0 ? [`    exclude ${hidden.map((c) => c.id).join(", ")}`] : []),

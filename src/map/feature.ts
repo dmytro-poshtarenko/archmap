@@ -24,18 +24,22 @@ export interface Feature {
   elements: string[];
 }
 
-/** Cyrillic letters in Latin (the Ukrainian national transliteration, plus the Russian letters it lacks). */
-const LATIN: Record<string, string> = {
-  а: "a", б: "b", в: "v", г: "h", ґ: "g", д: "d", е: "e", є: "ie", ж: "zh", з: "z", и: "y", і: "i", ї: "i", й: "i",
-  к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r", с: "s", т: "t", у: "u", ф: "f", х: "kh", ц: "ts", ч: "ch",
-  ш: "sh", щ: "shch", ь: "", ю: "iu", я: "ia", ё: "e", ы: "y", э: "e", ъ: "",
-};
-
-/** The view id of a feature name: Latin letters, digits and `_`; a name with none of them gets a short hash. */
+/**
+ * The view id of a feature name: Latin letters, digits and `_` from the name
+ * before any parenthesis (`User presence (sessions, callers)` → `user_presence`);
+ * a name with none of them gets a short hash.
+ */
 export function slugOf(name: string): string {
-  const latin = [...name.toLowerCase()].map((ch) => LATIN[ch] ?? ch).join("");
-  const slug = latin.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  const slug = (levelFree(name).split("(")[0] as string)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
   return slug || `feature_${sha256Hex(name).slice(0, 8)}`;
+}
+
+/** A view name without a C4 level the caller may have put in front of it: the map adds its own. */
+function levelFree(name: string): string {
+  return name.replace(/^\s*C[1-4]\s*:\s*/i, "");
 }
 
 /** The elements a seed names. */
@@ -109,5 +113,7 @@ export function renderFeature(f: Feature, req: FeatureRequest, run: string): str
     `kinds: ${req.kinds && req.kinds.length > 0 ? req.kinds.join(", ") : "all"}`,
     `run ${run}`,
   ].join("; ");
-  return ["views {", `  view feature_${f.slug} {`, `    title ${q(req.name)}`, `    description ${q(`${how}.`)}`, `    include ${f.elements.join(", ")}`, "  }", "}", ""].join("\n");
+  // components inside a container make it a C3 view; containers alone, a C2 view
+  const level = f.elements.some((e) => e.includes(".")) ? 3 : 2;
+  return ["views {", `  view feature_${f.slug} {`, `    title ${q(`C${level}: ${levelFree(req.name)}`)}`, `    description ${q(`${how}.`)}`, `    include ${f.elements.join(", ")}`, "  }", "}", ""].join("\n");
 }
