@@ -83,3 +83,25 @@ None of them touched the method: extraction, matching, rules, prompts and config
 - **The mobile repository** is held out until the method is frozen. At this commit the method is not the frozen one, so `fetch` skipped it, as designed.
 - **The Helm chart** was skipped, because Helm was not installed.
 - **The dev labels** came from `archmap label export` of the measurement workspace. They are the published reference, not a file made for the test.
+
+## The same test with Sonnet 5.5
+
+A second clean clone (`825d13b`) ran the same procedure with one change: `llm.cloud.model: claude-sonnet-5-5` in `configs/rocketchat.yaml`. The tests, the static steps, the map, the MCP servers and the system tests passed as above.
+
+| | Opus 5.5 | Sonnet 5.5 |
+|---|---|---|
+| Task (a), 322 requests | 8 min 41 s, 777 declarations | 7 min 34 s, 773 declarations |
+| Tasks (b) and (c), 32 requests | 1 min 36 s; 10 linked, 0 invented | 1 min 16 s; 10 linked, 0 invented |
+| Tokens in / out | 1.69 M / 69 k | 1.72 M / 60 k |
+| Repeated requests with the same answer | 26 of 27 | 25 of 27 |
+| Links of the full method | 4,690 linked, 489 with no target, 71 unresolved | The same counts |
+| Dev: R₁₋₇, P | 100 %, 100 % | 100 %, 100 % |
+
+- **Links.**
+  - The two models link 5,247 of 5,250 sites the same way.
+  - The 3 sites that differ are the ones on which two Opus runs also differ, and none of them is in the sample.
+  - On all 218 call sites of the test sample, both runs predict exactly what the official Opus run predicted. With Sonnet the method would have the same test results: R₁₋₇ 97.4 %, P 98.7 %.
+- **Declarations.**
+  - The DDP methods and subscriptions are the same 198.
+  - Sonnet leaves out the `/api` router prefix in 175 of its 575 REST declarations; Opus never does. Without the prefix, 564 declarations are shared. The other 24 differ in how a prefix-mounted handler is written: `* /assets` against `GET /assets/:asset`, and different parameter names.
+  - The missing prefix cost no links here, because the rules also find these REST routes. Where the model alone knows the routes, it could.
