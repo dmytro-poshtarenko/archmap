@@ -19,7 +19,7 @@ config file; Rocket.Chat is `configs/rocketchat.yaml`.
 ## Quick start
 
 ```bash
-npm install -g github:<account>/archmap
+npm install -g https://github.com/<account>/archmap/archive/refs/heads/main.tar.gz
 cd /path/to/your/system
 archmap init
 archmap map --open
@@ -27,6 +27,8 @@ archmap setup claude
 ```
 
 1. **Install** once; it needs Node.js 24.
+   - Install from the archive as above, not from the git URL: npm 11 runs the install scripts of a git dependency in the wrong folder.
+   - npm 11 may warn that it skipped the install scripts of esbuild and fsevents (`allow-scripts`). archmap does not need them.
 2. **`archmap init`** looks at the folder you run it in:
    - each git repository in it, or the folder itself;
    - the apps in their package.json files, and the browser code of a full-stack app;

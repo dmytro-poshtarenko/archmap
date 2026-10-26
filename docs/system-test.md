@@ -105,3 +105,39 @@ A second clean clone (`825d13b`) ran the same procedure with one change: `llm.cl
   - The DDP methods and subscriptions are the same 198.
   - Sonnet leaves out the `/api` router prefix in 175 of its 575 REST declarations; Opus never does. Without the prefix, 564 declarations are shared. The other 24 differ in how a prefix-mounted handler is written: `* /assets` against `GET /assets/:asset`, and different parameter names.
   - The missing prefix cost no links here, because the rules also find these REST routes. Where the model alone knows the routes, it could.
+
+## Install and quick start (2026-10-26)
+
+This run checks the setup commands the README's quick start uses. It takes the steps a new user takes, with the installed command, on a project outside the tool.
+
+| Step | Result |
+|---|---|
+| `npm install -g <archive of the repository>` into a temporary prefix | Installed in 13 s; the `archmap` command works from any folder |
+| The same from the git URL | Failed in npm 11.16. It ran the install scripts of the git dependency (esbuild, fsevents, archmap's own) in folders relative to the current one, which do not exist. The README gives the archive URL instead |
+| `archmap init --yes` in a copy of mini-complex | The parts of the hand-written config: web (client); api and worker (services); traefik (gateway); redis (bus, as BullMQ keeps jobs in it). Also its compose file and `generic@1` |
+| `archmap doctor` | Every check passed |
+| `archmap map` | Inventory to map in 2 s: 8 elements, 11 relations, no diagnostics, as with the hand-written config. The data went to `.archmap/`, which has its own `.gitignore` |
+| `archmap view` | The viewer answered |
+| `archmap setup claude`, with a temporary `HOME` | Both servers registered; `claude mcp list` reported both as connected |
+| `archmap init` on the Rocket.Chat snapshot | The parts of the hand-written config (see below) |
+
+**`init` on Rocket.Chat.** On the checkouts of the measurements, `init` found:
+- the Meteor server, by its Dockerfile, and its browser code `apps/meteor/client`;
+- the six microservices under their docker-compose names, by the packages named like them;
+- the desktop client, an Electron app at the root of a workspace, and the livechat client;
+- traefik, nats and mongo, by their images;
+- the rule packs `generic@1`, `meteor@1` and `rocketchat@1`.
+
+It also took `uikit-playground`, a playground app. The held-out mobile repository was not in the folder.
+
+**The map from the detected config.** Without the model, it linked 4,523 call sites, against 4,602 with the hand-written config, and drew 197 elements and 290 relations against 195 and 293.
+
+**Without `rocketchat@1`.** The detected config found 80 call sites and linked none. Rocket.Chat's calls go through its own SDK, as the held-out mobile client showed.
+
+**Defects found and fixed.**
+- **A config read as a number or a boolean.** A YAML id like `2024` or `true` would not have loaded; the config now quotes such ids.
+- **An override compose file** (a build with no context) was read as a build of the repository's root.
+- **A test compose file and an image named after a vendor** (`kong/httpbin`) were taken as parts.
+- **A workspace root that is an app** was left out.
+- **Install from git:** both causes above.
+
