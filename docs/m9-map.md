@@ -47,6 +47,19 @@ Relations are aggregated by (source part, target element, kind):
   subscriber.
 - **Jobs** go from the scheduler to the part that runs them.
 - **Routes** go from a gateway to each part its rules send requests to, e.g. `traefik → ddp-streamer-service` for `/websocket` and `/sockjs`. They come from the infrastructure step, not from call sites.
+- **Protocols.** Every relation has a `technology` that LikeC4 prints on the arrow:
+  - `HTTP` (`HTTPS` for an external URL that uses it);
+  - `WebSocket (DDP)`;
+  - `<bus> (RPC)` and `<bus> (events)`;
+  - `<database>`;
+  - `schedule`;
+  - `HTTP, WebSocket` for a gateway rule that routes `/websocket` or `/sockjs`.
+  
+  The bus and database protocols come from the scheme of the URLs other containers reach them by (`TRANSPORTER=nats://nats:4222` → NATS, `MONGO_URL=mongodb://…` → MongoDB), else from their images.
+- **Summary arrows (`#overview`).** For the C2 views, the map adds one relation per pair of containers that stands for every call between them. Its title says what flows (`REST: 474 routes; DDP: 15 methods, 1 subscription`), its technology lists the protocols, and its description lists the names. Broker actions and events that go both ways between two containers become one arrow with a head at each end (`style { tail normal }`), drawn from a service towards the bus.
+  - The C2 views draw only these (`exclude * -> * where tag is not #overview`).
+  - The C3 and feature views draw only the calls themselves.
+  - The feature search ignores them.
 - **Descriptions.** A developer sees these when hovering:
   - **a part:** what it holds, which parts use it and which it uses, which events it publishes and receives;
   - **an element inside a part:** the routes, methods or names in use there;
@@ -66,6 +79,8 @@ Every title starts with its level of the C4 model.
 
 - `context` (C1): the system and the external systems it calls.
 - `index` (C2): the containers and the links between them, with a description that names the run and explains the arrows and tags.
+  - Containers are grouped in rows: Clients, Gateway, Services (with the scheduled jobs), Message bus, Database. The layout is top to bottom with wider spacing.
+- `external_systems` (C2): the containers that call outside the system and the external systems. These are on a view of their own because their long arrows crossed the whole container view.
 - `of_<part>` (C3): one view per part with elements inside it, titled `C3: <part> (API groups and their callers)`.
   - A part with more than 12 elements inside lays them out top to bottom, not in one row.
   - A database with more than 12 collections shows only the ones two or more parts share, because sharing is the interaction through a database. The view's description counts what it leaves out.

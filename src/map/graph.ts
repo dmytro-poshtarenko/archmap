@@ -28,7 +28,12 @@ export interface MapExtras {
   externals?: ExternalCall[];
   /** The name the map gives the whole system, e.g. `Rocket.Chat`. */
   product?: string;
+  /** The protocol of each bus and database part, e.g. `nats` → `NATS`, `mongo` → `MongoDB`. */
+  protocols?: Record<string, string>;
 }
+
+/** Tag of the relations the C2 view draws: one per pair of containers, standing for every call between them. */
+export const OVERVIEW = "overview";
 
 /** Id of the element standing for the whole system on the C1 view. */
 export const SYSTEM = "system";
@@ -54,6 +59,10 @@ export interface MapRelation {
   title: string;
   /** Every route, method or name behind the relation, up to a limit. */
   description?: string;
+  /** The protocol the data travels by, shown on the arrow: `HTTP`, `WebSocket (DDP)`, `NATS (events)`, `MongoDB`. */
+  technology?: string;
+  /** One arrow for calls in both directions: it gets a head at each end. */
+  bothWays?: boolean;
   tags: string[];
   metadata: Record<string, string>;
   /** Target keys behind the relation. */
@@ -219,10 +228,115 @@ export function buildGraph(config: TargetConfig, run: string, sites: CallSite[],
     put({ name: SYSTEM, kind: "system", title: extras.product ?? config.name, parent: null });
     out.push(...systemRelations(out, elements, run));
   }
+  const busProtocol = config.components.filter((c) => c.kind === "bus").map((c) => extras.protocols?.[c.id])[0];
+  for (const r of out) r.technology ??= technologyOf(r, extras.protocols ?? {}, busProtocol);
   out.sort((a, b) => (a.source + a.target + a.kind < b.source + b.target + b.kind ? -1 : 1));
   const list = [...elements.values()].sort((a, b) => (a.id < b.id ? -1 : 1));
   describeElements(list, out);
+  out.push(...overviewRelations(out, elements, run));
   return { elements: list, relations: out };
+}
+
+/** The protocol of a relation, from its kind and the protocols of the bus and the database it reaches. */
+function technologyOf(r: MapRelation, protocols: Record<string, string>, busProtocol: string | undefined): string {
+  const top = (id: string) => id.split(".")[0] as string;
+  switch (r.kind) {
+    case "http":
+      return "HTTP";
+    case "ddp":
+      return "WebSocket (DDP)";
+    case "rpc":
+      return busProtocol ? `${busProtocol} (RPC)` : "RPC";
+    case "event":
+      return `${protocols[top(r.target)] ?? protocols[top(r.source)] ?? busProtocol ?? "broker"} (events)`;
+    case "db":
+      return protocols[top(r.target)] ?? "database";
+    case "trigger":
+      return "schedule";
+    case "route":
+      return /websocket|sockjs/i.test(r.title) ? "HTTP, WebSocket" : "HTTP";
+  }
+}
+
+/** Order of the kinds when one arrow stands for several: its colour and line come from the first. */
+const PRIORITY: RelationKind[] = ["http", "ddp", "rpc", "event", "db", "trigger", "route"];
+
+/**
+ * The relations of the C2 view: one per pair of containers, standing for
+ * every call between them and naming its protocols. Broker actions and
+ * events that go both ways become one arrow with a head at each end, drawn
+ * from a service towards the bus.
+ */
+function overviewRelations(relations: MapRelation[], elements: Map<string, MapElement>, run: string): MapRelation[] {
+  const top = (id: string) => id.split(".")[0] as string;
+  const pairs = new Map<string, MapRelation[]>();
+  for (const r of relations) {
+    const [a, b] = [top(r.source), top(r.target)];
+    if (a === b || a === SYSTEM) continue;
+    pairs.set(`${a}|${b}`, [...(pairs.get(`${a}|${b}`) ?? []), r]);
+  }
+  const out: MapRelation[] = [];
+  const done = new Set<string>();
+  for (const [key, there] of pairs) {
+    if (done.has(key)) continue;
+    const [a, b] = key.split("|") as [string, string];
+    const back = pairs.get(`${b}|${a}`) ?? [];
+    const bothWays = back.length > 0 && [...there, ...back].every((r) => r.kind === "rpc" || r.kind === "event");
+    done.add(key);
+    if (bothWays) done.add(`${b}|${a}`);
+    const all = bothWays ? [...there, ...back] : there;
+    const sites = (rs: MapRelation[]) => new Set(rs.flatMap((r) => r.sites)).size;
+    // a two-headed arrow starts at the service, not the bus, or at the side that calls more
+    const flip = bothWays && (elements.get(a)?.kind === "bus" || (elements.get(b)?.kind !== "bus" && sites(back) > sites(there)));
+    const [source, target] = flip ? [b, a] : [a, b];
+    const kinds = PRIORITY.filter((k) => all.some((r) => r.kind === k));
+    const summary = kinds.map((k) => summaryOf(k, all.filter((r) => r.kind === k), elements));
+    const technologies = [...new Set(kinds.flatMap((k) => all.filter((r) => r.kind === k).map((r) => r.technology ?? "")))].filter(Boolean);
+    const provenance = [...new Set(all.flatMap((r) => r.tags.filter((t) => t === "rules" || t === "infra" || t === "llm")))].sort();
+    out.push({
+      source,
+      target,
+      kind: kinds[0] as RelationKind,
+      title: `${summary.map((x) => x.title).join("; ")}${bothWays ? " (both ways)" : ""}`,
+      description: `${summary.map((x) => x.detail).join(" ")} ${sites(all)} call site${sites(all) === 1 ? "" : "s"}.`.trim(),
+      technology: technologies.join(", "),
+      bothWays,
+      tags: [OVERVIEW, ...provenance, ...(all.some((r) => r.tags.includes("viaGateway")) ? ["viaGateway"] : [])],
+      metadata: { sites: String(sites(all)), run },
+      keys: [],
+      sites: [...new Set(all.flatMap((r) => r.sites))].sort(),
+    });
+  }
+  return out;
+}
+
+/** What one kind of call between two containers amounts to: a short title and the names behind it. */
+function summaryOf(kind: RelationKind, rs: MapRelation[], elements: Map<string, MapElement>): { title: string; detail: string } {
+  const names = [...new Set(rs.flatMap((r) => (r.keys.length > 0 ? r.keys.map(displayKey) : [r.title])))].sort();
+  const n = names.length;
+  const external = rs.every((r) => elements.get(r.target)?.kind === "external");
+  const endpoints = rs.reduce((sum, r) => sum + Number(r.metadata.endpoints ?? 1), 0);
+  switch (kind) {
+    case "http":
+      return external
+        ? { title: count(endpoints, "endpoint"), detail: `${listed(rs.map((r) => r.description?.split(". ")[0] ?? r.title), 12)}.` }
+        : { title: `REST: ${count(n, "route")}`, detail: `REST: ${listed(names, 12)}.` };
+    case "ddp": {
+      const subs = rs.flatMap((r) => r.keys).filter((k) => k.startsWith("ddp:sub:")).length;
+      const methods = rs.flatMap((r) => r.keys).filter((k) => k.startsWith("ddp:call:")).length;
+      return { title: `DDP: ${[methods > 0 ? count(methods, "method") : "", subs > 0 ? count(subs, "subscription") : ""].filter(Boolean).join(", ")}`, detail: `DDP: ${listed(names, 12)}.` };
+    }
+    case "rpc":
+      return { title: `RPC: ${count(n, "action")}`, detail: `Broker actions: ${listed(names, 12)}.` };
+    case "event":
+      return { title: `events: ${n}`, detail: `Events: ${listed(names, 12)}.` };
+    case "db":
+      return { title: count(n, "collection"), detail: `Collections: ${listed(names, 12)}.` };
+    case "trigger":
+      return { title: count(n, "scheduled job"), detail: `Jobs: ${listed(names, 12)}.` };
+    case "route":
+      return { title: `routes ${rs.map((r) => r.title).join(", ")}`, detail: `${rs.map((r) => r.description ?? "").join(" ")}` };
+  }
 }
 
 /** The organisation a host belongs to, as its last two labels: `translation.googleapis.com` → `googleapis.com`. */
@@ -234,7 +348,7 @@ type Put = (e: Omit<MapElement, "id" | "tags" | "metadata"> & { tags?: string[];
 
 /** Relations from the calling parts to one external element per domain. */
 function externalRelations(calls: ExternalCall[], put: Put, elements: Map<string, MapElement>, run: string): MapRelation[] {
-  const relations = new Map<string, MapRelation & { names: Set<string> }>();
+  const relations = new Map<string, MapRelation & { names: Set<string>; schemes: Set<string> }>();
   for (const call of calls) {
     let url: URL;
     try {
@@ -249,19 +363,21 @@ function externalRelations(calls: ExternalCall[], put: Put, elements: Map<string
       const source = ident(from);
       if (!elements.has(source)) continue;
       const id = `${source}|${ext.id}`;
-      const r = relations.get(id) ?? { source, target: ext.id, kind: "http" as const, title: "", tags: [], metadata: {}, keys: [], sites: [], names: new Set<string>() };
+      const r = relations.get(id) ?? { source, target: ext.id, kind: "http" as const, title: "", tags: [], metadata: {}, keys: [], sites: [], names: new Set<string>(), schemes: new Set<string>() };
       r.names.add(`${url.hostname}${url.pathname}`);
+      r.schemes.add(url.protocol === "https:" ? "HTTPS" : "HTTP");
       if (!r.sites.includes(call.site)) r.sites.push(call.site);
       relations.set(id, r);
     }
   }
-  return [...relations.values()].map(({ names, ...r }) => {
+  return [...relations.values()].map(({ names, schemes, ...r }) => {
     const sorted = [...names].sort();
     return {
       ...r,
+      technology: [...schemes].sort().join(", "),
       title: sorted.length <= 2 ? sorted.join(", ") : `${sorted.slice(0, 2).join(", ")} (+${sorted.length - 2})`,
       description: `${listed(sorted, 12)}. Outside the system; ${r.sites.length} call site${r.sites.length === 1 ? "" : "s"}.`,
-      metadata: { callsite: r.sites.sort()[0] ?? "", sites: String(r.sites.length), run },
+      metadata: { callsite: r.sites.sort()[0] ?? "", sites: String(r.sites.length), endpoints: String(sorted.length), run },
     };
   });
 }
@@ -280,6 +396,7 @@ function systemRelations(relations: MapRelation[], elements: Map<string, MapElem
       kind: "http" as const,
       title: `${hosts.split(", ").slice(0, 2).join(", ")}${hosts.split(", ").length > 2 ? " …" : ""} (${sites.length} call${sites.length === 1 ? "" : "s"})`,
       description: `Called from ${listed(callers, 6)}. Hosts: ${hosts}.`,
+      technology: [...new Set(rs.map((r) => r.technology ?? "HTTP"))].sort().join(", "),
       tags: [],
       metadata: { sites: String(sites.length), run },
       keys: [],

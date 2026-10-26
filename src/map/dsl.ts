@@ -1,4 +1,4 @@
-import { type MapElement, type MapGraph, type MapRelation, SYSTEM } from "./graph.js";
+import { type MapElement, type MapGraph, type MapRelation, OVERVIEW, SYSTEM } from "./graph.js";
 
 /** A LikeC4 string literal. */
 export function q(text: string): string {
@@ -96,6 +96,7 @@ const SPECIFICATION = `specification {
   tag ambiguous
   tag shared
   tag viaGateway
+  tag overview
 }
 `;
 
@@ -120,8 +121,10 @@ function element(e: MapElement, children: MapElement[], all: MapElement[], inden
 function relation(r: MapRelation): string[] {
   const body = [
     ...(r.tags.length > 0 ? [`    ${r.tags.map((t) => `#${t}`).join(" ")}`] : []),
+    ...(r.technology ? [`    technology ${q(r.technology)}`] : []),
     ...(r.description ? [`    description ${q(r.description)}`] : []),
     ...metadata(r.metadata, "    "),
+    ...(r.bothWays ? ["    style {", "      tail normal", "    }"] : []),
   ];
   const head = `  ${r.source} -[${r.kind}]-> ${r.target} ${q(r.title)}`;
   return body.length === 0 ? [head] : [`${head} {`, ...body, "  }"];
@@ -129,8 +132,19 @@ function relation(r: MapRelation): string[] {
 
 /** How to read the arrows and tags, repeated on the views a developer opens first. */
 export const LEGEND =
+  "Each arrow names its protocol: HTTP, WebSocket (DDP), the broker's transport for RPC and events, the database's protocol. " +
+  "On this view one arrow stands for every call between two containers; an arrow with two heads, calls both ways. " +
   "Arrows: http solid blue, ddp solid indigo, rpc (broker actions) dashed green, event dotted amber, db solid grey, trigger dotted red, route (a gateway's rules) dashed teal. " +
   "Tags: #rules, #infra or #llm say what decided a link; #viaGateway, the request passes the gateway; #ambiguous, several targets remain possible; #shared, a collection two or more parts use.";
+
+/** The rows of the C2 view, top to bottom: who calls first, what is called last. */
+const TIERS: Array<[string, Array<MapElement["kind"]>]> = [
+  ["Clients", ["client"]],
+  ["Gateway", ["gateway"]],
+  ["Services", ["service", "scheduler"]],
+  ["Message bus", ["bus"]],
+  ["Database", ["database"]],
+];
 
 /** Beyond this many elements inside a part, its view lays them out top to bottom instead of in one long row. */
 const WIDE = 12;
@@ -165,10 +179,33 @@ export function renderModel(graph: MapGraph, product: string, description: strin
     "  view index {",
     `    title ${q(`C2: ${product} containers and the links between them`)}`,
     `    description ${q(`${description} ${LEGEND}`)}`,
-    "    include *",
-    ...(top.some((e) => e.id === SYSTEM) ? [`    exclude ${SYSTEM}`] : []),
+    ...TIERS.flatMap(([name, kinds]) => {
+      const members = top.filter((e) => kinds.includes(e.kind));
+      return members.length > 0 ? [`    group ${q(name)} {`, `      include ${members.map((e) => e.id).join(", ")}`, "    }"] : [];
+    }),
+    // the C2 view draws one arrow per pair of containers; the calls behind it are on the C3 views
+    `    exclude * -> * where tag is not #${OVERVIEW}`,
+    "    autoLayout TopBottom 140 70",
     "  }",
   );
+  // the external systems on a C2 view of their own: their long arrows would cross the whole container view
+  const callers = top.filter((e) => graph.relations.some((r) => r.tags.includes(OVERVIEW) && r.source === e.id && externals.some((x) => x.id === r.target)));
+  if (externals.length > 0 && callers.length > 0) {
+    lines.push(
+      "  view external_systems {",
+      `    title ${q(`C2: ${product} containers and the external systems they call`)}`,
+      `    description ${q(`The containers whose code calls systems outside ${product}, and those systems, one per domain. Each arrow names its protocol and how many endpoints it reaches.`)}`,
+      "    group 'Containers' {",
+      `      include ${callers.map((e) => e.id).join(", ")}`,
+      "    }",
+      "    group 'External systems' {",
+      `      include ${externals.map((e) => e.id).join(", ")}`,
+      "    }",
+      `    exclude * -> * where tag is not #${OVERVIEW}`,
+      "    autoLayout LeftRight 160 40",
+      "  }",
+    );
+  }
   for (const e of scoped) {
     const inside = graph.elements.filter((c) => c.parent === e.id);
     // a database with many collections shows the ones two or more parts share: the interaction through a shared database
@@ -180,6 +217,7 @@ export function renderModel(graph: MapGraph, product: string, description: strin
       `    title ${q(partTitle(e, hidden.length > 0))}`,
       `    description ${q(`${e.description ?? ""}${note}`.trim())}`,
       "    include *",
+      `    exclude * -> * where tag is #${OVERVIEW}`,
       ...(hidden.length > 0 ? [`    exclude ${hidden.map((c) => c.id).join(", ")}`] : []),
       ...(shown > WIDE ? ["    autoLayout LeftRight"] : []),
       "  }",

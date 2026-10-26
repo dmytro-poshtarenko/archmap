@@ -1,6 +1,6 @@
 import { sha256Hex } from "../core/hash.js";
 import { q } from "./dsl.js";
-import type { MapGraph, MapRelation, RelationKind } from "./graph.js";
+import { type MapGraph, type MapRelation, OVERVIEW, type RelationKind } from "./graph.js";
 
 export interface FeatureRequest {
   name: string;
@@ -68,7 +68,8 @@ export function featureOf(graph: MapGraph, req: FeatureRequest): Feature {
   const depth = Math.min(4, Math.max(1, Math.round(req.depth)));
   const direction = req.direction ?? "both";
   const kinds = req.kinds && req.kinds.length > 0 ? new Set(req.kinds) : null;
-  const relations = graph.relations.filter((r) => !kinds || kinds.has(r.kind));
+  // the C2 summary arrows repeat the calls between containers; the search follows the calls themselves
+  const relations = graph.relations.filter((r) => !r.tags.includes(OVERVIEW) && (!kinds || kinds.has(r.kind)));
   const within = (inner: string, outer: string) => inner === outer || inner.startsWith(`${outer}.`);
   const seeds: string[] = [];
   const unmatched: string[] = [];
@@ -103,7 +104,7 @@ export function featureOf(graph: MapGraph, req: FeatureRequest): Feature {
 /** The relations a feature view draws: both ends inside its elements. */
 export function featureRelations(graph: MapGraph, f: Feature): MapRelation[] {
   const covered = (id: string) => f.elements.some((e) => id === e || id.startsWith(`${e}.`));
-  return graph.relations.filter((r) => covered(r.source) && covered(r.target));
+  return graph.relations.filter((r) => !r.tags.includes(OVERVIEW) && covered(r.source) && covered(r.target));
 }
 
 export function renderFeature(f: Feature, req: FeatureRequest, run: string): string {
@@ -115,5 +116,15 @@ export function renderFeature(f: Feature, req: FeatureRequest, run: string): str
   ].join("; ");
   // components inside a container make it a C3 view; containers alone, a C2 view
   const level = f.elements.some((e) => e.includes(".")) ? 3 : 2;
-  return ["views {", `  view feature_${f.slug} {`, `    title ${q(`C${level}: ${levelFree(req.name)}`)}`, `    description ${q(`${how}.`)}`, `    include ${f.elements.join(", ")}`, "  }", "}", ""].join("\n");
+  return [
+    "views {",
+    `  view feature_${f.slug} {`,
+    `    title ${q(`C${level}: ${levelFree(req.name)}`)}`,
+    `    description ${q(`${how}.`)}`,
+    `    include ${f.elements.join(", ")}`,
+    `    exclude * -> * where tag is #${OVERVIEW}`,
+    "  }",
+    "}",
+    "",
+  ].join("\n");
 }

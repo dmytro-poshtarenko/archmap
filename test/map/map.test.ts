@@ -10,7 +10,7 @@ import { programOf, runExtraction } from "../../src/extract/run.js";
 import { extractInfra, writeInfra } from "../../src/infra/index.js";
 import { renderModel } from "../../src/map/dsl.js";
 import { featureOf, slugOf } from "../../src/map/feature.js";
-import type { MapElement, MapGraph } from "../../src/map/graph.js";
+import { buildGraph, type MapElement, type MapGraph } from "../../src/map/graph.js";
 import { addFeatureView, buildMap, MODEL_FILE } from "../../src/map/run.js";
 import { runMatch } from "../../src/match/run.js";
 import { openDb } from "../../src/store/db.js";
@@ -63,7 +63,14 @@ describe("the LikeC4 map", () => {
     // each view names its level of the C4 model
     expect(text).toContain("view context {\n    title 'C1: mini system context'");
     expect(text).toContain("view index {\n    title 'C2: mini containers and the links between them'");
-    expect(text).toContain("exclude system");
+    // every arrow names its protocol, the bus's taken from the infrastructure
+    expect(rel("web", "api.ep_orders")?.technology).toBe("HTTP");
+    expect(rel("api", "redis")?.technology).toBe("Redis (events)");
+    // the C2 view: containers in rows, one arrow per pair standing for every call between them
+    const overview = graph.relations.filter((r) => r.tags.includes("overview"));
+    expect(overview.find((r) => r.source === "web" && r.target === "api")).toMatchObject({ kind: "http", title: "REST: 5 routes", technology: "HTTP" });
+    expect(text).toContain("group 'Clients' {\n      include web\n    }");
+    expect(text).toContain("exclude * -> * where tag is not #overview");
     expect(JSON.parse(readFileSync(join(dir, "likec4.config.json"), "utf8"))).toEqual({ name: "mini", title: "mini: C4 Diagrams" });
   }, 60_000);
 
@@ -118,7 +125,36 @@ describe("the LikeC4 map", () => {
     expect(view("db")).not.toContain("autoLayout");
     // a part with many elements lays them out top to bottom
     expect(view("api")).toContain("autoLayout LeftRight");
-    expect(view("api")).not.toContain("exclude");
+    expect(view("api")).not.toContain("exclude api.");
+    // a C3 view draws the calls themselves, not the C2 summary arrows
+    expect(view("api")).toContain("exclude * -> * where tag is #overview");
+  });
+});
+
+describe("the C2 summary arrows", () => {
+  it("draw broker calls that go both ways as one arrow with two heads, from a service to the bus", () => {
+    const config = { name: "t", repos: [], components: [
+      { id: "a", kind: "service", include: [] },
+      { id: "b", kind: "service", include: [] },
+      { id: "bus", kind: "bus", include: [] },
+    ] } as never;
+    const site = (id: string, component: string, role: string) =>
+      ({ id, repo: "r", path: "p", line: 1, endLine: 1, col: 1, type: "broker", role, detector: "d", method: null, address: { parts: [] }, components: [component], liftedFrom: null }) as never;
+    const link = (s: string, target: string) => ({ site: s, status: "linked", target, route: null, component: null, reason: null, via: [], provenance: "rules", caseNo: 1, alternatives: [] });
+    const graph = buildGraph(
+      config,
+      "run",
+      [site("s1", "a", "request"), site("s2", "b", "request"), site("s3", "a", "publish"), site("s4", "a", "subscribe")],
+      [link("s1", "action:-:b.do@b"), link("s2", "action:-:a.do@a"), link("s3", "event:-:e1@*"), link("s4", "event:-:e2@*")],
+      { protocols: { bus: "NATS" } },
+    );
+    const overview = graph.relations.filter((r) => r.tags.includes("overview"));
+    expect(overview.map((r) => [r.source, r.target, r.title, r.technology, r.bothWays])).toEqual([
+      ["a", "b", "RPC: 2 actions (both ways)", "NATS (RPC)", true],
+      ["a", "bus", "events: 2 (both ways)", "NATS (events)", true],
+    ]);
+    // the calls themselves keep their direction
+    expect(graph.relations.filter((r) => !r.tags.includes("overview")).map((r) => [r.source, r.target, r.technology])).toContainEqual(["bus", "a", "NATS (events)"]);
   });
 });
 

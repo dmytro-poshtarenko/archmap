@@ -43,7 +43,56 @@ export function productName(config: TargetConfig): string {
 export function graphOf(db: Db, config: TargetConfig, run: string): MapGraph {
   const links = loadLinks(db, run);
   if (links.length === 0) throw new Error(`run '${run}' has no links; run \`archmap match\` first`);
-  return buildGraph(config, run, loadSites(db), links, { routing: loadRouting(db), externals: loadExternals(db, run), product: productName(config) });
+  return buildGraph(config, run, loadSites(db), links, { routing: loadRouting(db), externals: loadExternals(db, run), product: productName(config), protocols: loadProtocols(db) });
+}
+
+/** Protocol names by URL scheme and by container image. */
+const SCHEMES: Record<string, string> = {
+  nats: "NATS",
+  mongodb: "MongoDB",
+  "mongodb+srv": "MongoDB",
+  redis: "Redis",
+  rediss: "Redis",
+  amqp: "AMQP",
+  amqps: "AMQP",
+  kafka: "Kafka",
+  postgres: "PostgreSQL",
+  postgresql: "PostgreSQL",
+  mysql: "MySQL",
+};
+const IMAGES: Array<[string, string]> = [
+  ["nats", "NATS"],
+  ["mongo", "MongoDB"],
+  ["redis", "Redis"],
+  ["rabbitmq", "AMQP"],
+  ["kafka", "Kafka"],
+  ["postgres", "PostgreSQL"],
+  ["mysql", "MySQL"],
+  ["mariadb", "MySQL"],
+];
+
+/**
+ * The protocol each part is reached by, from the infrastructure step: the
+ * scheme of the URLs other containers use for it (`TRANSPORTER=nats://nats:4222`
+ * → NATS), else what its image is (`mongodb/mongodb-community-server` → MongoDB).
+ */
+function loadProtocols(db: Db): Record<string, string> {
+  const containers = db.prepare("SELECT name, component, image, env FROM container").all() as Array<{ name: string; component: string | null; image: string | null; env: string }>;
+  const byName = new Map(containers.map((c) => [c.name, c]));
+  const out: Record<string, string> = {};
+  for (const c of containers) {
+    for (const value of Object.values(JSON.parse(c.env) as Record<string, unknown>)) {
+      const m = typeof value === "string" ? /^([a-z][a-z0-9+.-]*):\/\/(?:[^@/]*@)?([^:/?,]+)/i.exec(value) : null;
+      const protocol = m ? SCHEMES[(m[1] as string).toLowerCase()] : undefined;
+      const target = m ? byName.get(m[2] as string) : undefined;
+      if (protocol && target?.component) out[target.component] ??= protocol;
+    }
+  }
+  for (const c of containers) {
+    const known = c.component && c.image ? IMAGES.find(([k]) => (c.image as string).toLowerCase().includes(k)) : undefined;
+    if (known && c.component) out[c.component] ??= known[1];
+  }
+  return out;
 }
 
 /**

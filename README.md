@@ -156,12 +156,14 @@ C4 model:
 | Level | View | What it shows |
 |---|---|---|
 | C1 | `context` | The system as one box and the external systems its code calls, one per domain. |
-| C2 | `index` | The containers: clients, services, gateway, message bus, database, scheduled jobs. Also the links between them and the external systems they call. |
+| C2 | `index` | The containers in rows: clients, gateway, services, message bus, database. One arrow per pair of containers stands for every call between them, with what flows and by which protocol, e.g. `REST: 474 routes; DDP: 15 methods [HTTP, WebSocket (DDP)]`. Broker calls both ways get one arrow with two heads. |
+| C2 | `external_systems` | The containers that call systems outside the product, and those systems. |
 | C3 | `of_<container>` | One container from inside: endpoint groups, DDP methods and subscriptions, broker namespaces, and who calls them. The database view keeps the collections two or more containers share. |
 | C2 or C3 | `feature_<name>` | The containers and components one feature uses (below). |
 
 **Reading the views.**
 - Hover an element for what it holds and who uses it, an arrow for its routes and what decided it.
+- **Protocols.** Each arrow names its protocol: `HTTP` or `HTTPS`, `WebSocket (DDP)`, the broker's transport for RPC and events (`NATS (RPC)`, `NATS (events)`), and the database's protocol (`MongoDB`). The bus and database protocols come from the URLs in the deployment descriptions (`TRANSPORTER=nats://…`), else from the container images.
 - **Arrows:** `http` solid blue, `ddp` solid indigo, `rpc` (broker actions) dashed green, `event` dotted amber, `db` solid grey, `trigger` dotted red, `route` (a gateway's rules) dashed teal.
 - **Tags:** `#rules`, `#infra` and `#llm` say what decided a link.
 
