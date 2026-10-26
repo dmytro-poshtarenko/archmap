@@ -16,6 +16,64 @@ sites, runs the experiment on file length (hypothesis 3) and freezes the
 method before the test split is opened. The target system is described by one
 config file; Rocket.Chat is `configs/rocketchat.yaml`.
 
+## Results on Rocket.Chat
+
+**Snapshot.** Pinned on 2026-10-15 (`configs/rocketchat.lock.json`):
+
+| Repository | Commit |
+|---|---|
+| Rocket.Chat | `16badb07aedc365a489b9f4ac5b6d8e64ad65373` |
+| Rocket.Chat.Electron | `158b7c6cbbab88f2c39ab23f98ed65647c050133` |
+| Rocket.Chat.ReactNative (held out) | `19a8c31ae31df949a1a1ec5c80d1e1ce502858c0` |
+| helm-charts | `eea375d7a9b74b98066d8681f6ba9715ec6340ef` |
+
+**Reference.**
+- One annotator labelled the call sites blind, by `docs/labelling-guide.md`: 135 on the dev split, 265 on the test split and 76 in the held-out mobile client.
+- There was no second annotator, so agreement between annotators was not measured.
+- **Freeze.** The method was tuned on dev only and frozen with the tag `freeze-1` (method commit `f1b88f2`) before the test split was opened.
+- **Audit.** Every evaluation is in `audit/evaluations.jsonl`, with its run, split, comparison mode, metrics, tool commit and config hash.
+
+**Test split, frozen method.** R₁₋₇ is recall among the links static sources can recover; P is precision. Both are weighted by interaction type, with 95 % bootstrap intervals over files.
+
+| Variant | Opus 5.5: R₁₋₇ | Opus 5.5: P | Qwen3 30B: R₁₋₇ | Qwen3 30B: P |
+|---|---|---|---|---|
+| Full method (the model chooses among the rules' candidates for open sites) | 97.4 % [94.3; 99.7] | 98.7 % [96.8; 100] | 96.0 % [92.8; 98.4] | 98.7 % [96.7; 100] |
+| Without the model | 95.8 % | 98.8 % | 95.8 % | 98.8 % |
+| Without the infrastructure descriptions | 97.4 % | 98.7 % | 95.3 % | 97.1 % |
+| Without the rules | 9.6 % | 98.7 % | 0.5 % | 5.3 % |
+| The model on every site, choosing among candidates | 97.4 % | 96.1 % | 91.1 % | 87.8 % |
+| The model on every site, free search | 97.4 % | 96.4 % | 42.8 % | 72.9 % |
+
+**Hypotheses:**
+- **Main hypothesis:** confirmed with both models.
+- **H1** (each component's share is predicted by the cases): confirmed with both models.
+- **H2:** refuted with both models, for different reasons. Opus barely invents targets, so free search is as good as choosing. Qwen, asked about every site, spoils links the rules had found.
+- **H3:** partly confirmed. Qwen's recall falls with file length (GEE slope −0.65, p = 0.004); Opus found 59 of 59 routes at every length. Long files are split for Qwen only.
+
+**The two models differ only on DDP streams.** Opus links 13 of 15, Qwen 1 of 15 (exact McNemar p = 0.0018), because Qwen does not recognise `createStream(…)` declarations.
+
+**Held-out mobile client.** The frozen method linked none of its 45 sites with a target, and none of 33 without the E2E scripts. The 95 % upper bounds are 7.9 % and 10.4 %. The client calls the server through its own SDK, which the rule packs do not recognise, and the model does not look for call sites.
+
+**Baseline: codebase-memory-mcp 0.10.0.**
+- By full target key: 0 % recall, because it never names the part that serves a call.
+- By path only: R₁₋₇ 12.5 % [8.1; 17.5], P 75.8 %, all on HTTP. The method scored the same way gets 97.6 % and 98.8 %.
+
+**Gap check** (`pnpm archmap label gap-report`). In 20 files read in full:
+- the text search for candidates found 48 of 49 call sites, the method's extraction 46;
+- both found all 42 sites with a target in the system, so the miss rate is at most 8.4 % at 95 %.
+
+**Stability of the cloud model** (`pnpm archmap llm-stats`). Repeated requests gave the same decision:
+- route extraction: 27 of 27;
+- choosing among candidates: 21 of 21;
+- free search: 36 of 44.
+
+**Memorisation.** From a file path alone, Opus named 50 of 59 routes and Qwen 2 of 59; with the paths renamed, both named none. Opus knows Rocket.Chat from training, which is a threat to validity for its route extraction.
+
+**The map.** Built from the full method with Opus: 194 elements and 268 relations.
+- C1: Rocket.Chat and the 7 external systems its code calls.
+- C2: its 15 containers.
+- C3: one view of each container.
+
 ## Requirements
 
 | What | Version | Needed for |
@@ -90,31 +148,43 @@ pnpm archmap view        # the LikeC4 viewer on http://localhost:5173
 ```
 
 `build-map` also points `data/out/<target>/current` at the map it built, so
-`view` and the MCP servers always open the latest one. The viewer has:
+`view` and the MCP servers always open the latest one. The viewer's title is
+`<product>: C4 Diagrams`, where the product is named after the main
+repository (`Rocket.Chat`). Every view's title starts with its level of the
+C4 model:
 
-| View | What it shows |
-|---|---|
-| `index` | The parts of the system and the links between them. Hover a part for what it holds and who calls it, an arrow for its routes and what decided it. |
-| `of_<part>` | One part from inside: endpoint groups, DDP methods and subscriptions, broker namespaces. The database view keeps the collections two or more parts share. |
-| `feature_<name>` | The parts one feature uses (below). |
+| Level | View | What it shows |
+|---|---|---|
+| C1 | `context` | The system as one box and the external systems its code calls, one per domain. |
+| C2 | `index` | The containers: clients, services, gateway, message bus, database, scheduled jobs. Also the links between them and the external systems they call. |
+| C3 | `of_<container>` | One container from inside: endpoint groups, DDP methods and subscriptions, broker namespaces, and who calls them. The database view keeps the collections two or more containers share. |
+| C2 or C3 | `feature_<name>` | The containers and components one feature uses (below). |
 
-Arrows: `http` solid blue, `ddp` solid indigo, `rpc` (broker actions) dashed
-green, `event` dotted amber, `db` solid grey, `trigger` dotted red, `route` (a
-gateway's rules) dashed teal. Tags `#rules`, `#infra` and `#llm` say what
-decided a link.
+**Reading the views.**
+- Hover an element for what it holds and who uses it, an arrow for its routes and what decided it.
+- **Arrows:** `http` solid blue, `ddp` solid indigo, `rpc` (broker actions) dashed green, `event` dotted amber, `db` solid grey, `trigger` dotted red, `route` (a gateway's rules) dashed teal.
+- **Tags:** `#rules`, `#infra` and `#llm` say what decided a link.
 
 ### One feature
 
 ```bash
-pnpm archmap feature-view "User presence" --seeds ns:presence,coll:usersSessions
+pnpm archmap feature-view "User presence (presence service actions, their callers, sessions collection)" --seeds ns:presence,coll:usersSessions
+pnpm archmap remove-view feature_user_presence
 ```
 
-A seed is an element id (`rocketchat`), a route pattern (`/api/v1/livechat*`,
-where `*` stands for any characters, `/` included), a broker service
-(`ns:presence`), a collection (`coll:users`) or a keyword. The view follows
-the links from the seeds: `--depth` hops (1 to 4), `--direction in|out|both`,
-`--kinds` to keep some kinds of links. Names in any language work; the view id
-is transliterated.
+**The name.** Write it in English: what the feature is, then in parentheses what the view holds. The map adds the C4 level: C3 when the view shows components inside a container, C2 when it shows containers only. The view id comes from the words before the parenthesis (`feature_user_presence`).
+
+**Seeds.** A seed is one of:
+- an element id (`rocketchat`);
+- a route pattern (`/api/v1/livechat*`, where `*` stands for any characters, `/` included);
+- a broker service (`ns:presence`);
+- a collection (`coll:users`);
+- a keyword.
+
+**Following the links.** The view follows links from the seeds:
+- `--depth`: hops, 1 to 4;
+- `--direction`: `in`, `out` or `both`;
+- `--kinds`: only these kinds of links.
 
 ### From Claude Code
 
@@ -128,12 +198,12 @@ claude mcp add likec4 -- npx -y likec4@1.59.4 mcp /path/to/data/out/rocketchat/c
 
 | Server | Tools |
 |---|---|
-| `archmap` | `create_feature_view` builds a feature view and returns its parts, the links between them with their routes, and the viewer address. `list_unresolved` lists what the method left open, as metadata only. `rebuild_map` reruns classification, matching and the model's answers (recorded ones unless `llm: live`) and rebuilds the map. |
+| `archmap` | `create_feature_view` builds a feature view and returns its parts, the links between them with their routes, and the viewer address. `delete_feature_view` removes one. `list_unresolved` lists what the method left open, as metadata only. `rebuild_map` reruns classification, matching and the model's answers (recorded ones unless `llm: live`) and rebuilds the map. |
 | `likec4` | Read-only: elements, relationships, paths between parts, views. |
 
 Questions to try:
 - «Which parts of Rocket.Chat take part in user presence? Make a feature view.»
-- «Which services write the `users` collection?»
+- «Which external systems does Rocket.Chat call, and from which containers?»
 - «What did the method leave unresolved in the desktop client, and why?»
 
 ## Reference labelling
@@ -195,7 +265,34 @@ pnpm archmap run-all --model cloud --split test     # the frozen variant on the 
 pnpm archmap run-all --model cloud --split heldout
 ```
 
-Every evaluation is appended to `audit/evaluations.jsonl`.
+Every evaluation is appended to `audit/evaluations.jsonl`. Entries since 2026-10-26 say how predictions met the labels (`compare`: `key` or `path`). Earlier entries scored by path only have a run id ending in `@path`.
+
+## Reproducing the measurements
+
+The labels are published without code: repository, commit, path, line, type, target and case (`pnpm archmap label export`). With them:
+
+```bash
+git checkout freeze-1                       # the frozen method
+pnpm install && (cd analysis && uv sync)
+pnpm archmap fetch && pnpm archmap inventory          # the pinned commits
+pnpm archmap extract && pnpm archmap extract-infra
+pnpm archmap label candidates && pnpm archmap label sample   # the same frame and sample: fixed seeds
+pnpm archmap label import --split test --file test-labels.jsonl
+pnpm archmap run-all --model cloud-cli --split test   # or --model cloud with an API key, or --model local
+```
+
+**The model's answers.**
+- Asked again, Opus 5.5 may answer a few requests differently: it takes no temperature, and free search was the least stable task (above).
+- With the recorded answers, `--model replay-cloud-cli` reproduces every number of the table. Replays of both models gave metrics identical to the first evaluation, to the last digit.
+
+**The baseline:**
+
+```bash
+pnpm archmap exp baseline-cbm
+pnpm archmap evaluate --run cbm --split test --compare path
+```
+
+**The gap check** came after the freeze. Run it on a later commit: `pnpm archmap label gap-report`. It reads the test labels only while the extraction is still the frozen one.
 
 ## Licences
 

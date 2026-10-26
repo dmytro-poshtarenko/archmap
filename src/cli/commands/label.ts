@@ -1,7 +1,8 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Command } from "commander";
 import { sha256Hex } from "../../core/hash.js";
+import { extractionAsFrozen, gapReport } from "../../eval/gap.js";
 import { toolRoot } from "../../core/paths.js";
 import { findCandidates, loadCandidates, storeCandidates } from "../../labelling/candidates.js";
 import { storeCatalog } from "../../labelling/catalog.js";
@@ -228,6 +229,44 @@ export function registerLabel(program: Command): void {
         if (opts.details) for (const d of result.disagreements) console.log(JSON.stringify(d));
       } finally {
         ldb.close();
+      }
+    });
+
+  label
+    .command("gap-report")
+    .description("the gap check: in the files read in full, how many call sites the text search for candidates and the method's extraction found")
+    .option("--annotator <id>", "whose labels are the reference", "A")
+    .action((opts: { annotator: string }, cmd: Command) => {
+      const ctx = createContext(cmd.optsWithGlobals<GlobalOptions>());
+      const { name } = ctx.loaded.config;
+      const allowed = extractionAsFrozen(toolRoot);
+      if (!allowed.ok) throw new Error(`the gap check reads test labels: ${allowed.reason}`);
+      const cdb = openCandidates(ctx.layout, name);
+      const labels = { dev: openLabels(ctx.layout, name, "dev", "evaluate", true), test: openLabels(ctx.layout, name, "test", "evaluate", true) };
+      const db = ctx.openDb();
+      try {
+        const r = gapReport({ candidates: cdb, labels, method: db, annotator: opts.annotator });
+        const pct = (k: number, n: number) => (n === 0 ? "–" : `${((100 * k) / n).toFixed(1)} %`);
+        console.log(`files read in full: ${r.reviewed} of ${r.files}`);
+        console.log(`call sites: ${r.all.sites}; text search found ${r.all.inFrame} (${pct(r.all.inFrame, r.all.sites)}), the method's extraction ${r.all.byMethod} (${pct(r.all.byMethod, r.all.sites)})`);
+        console.log(
+          `with a target in the system: ${r.targeted.sites}; text search ${r.targeted.inFrame}, extraction ${r.targeted.byMethod}; 95 % upper bound of the miss rate: text search ${pct(r.targeted.missUpper.frame, 1)}, extraction ${pct(r.targeted.missUpper.method, 1)}`,
+        );
+        for (const s of r.sites.filter((x) => !x.inFrame || !x.byMethod)) {
+          console.log(`  missed by ${[!s.inFrame ? "text search" : "", !s.byMethod ? "extraction" : ""].filter(Boolean).join(" and ")}: ${s.split} ${s.repo}:${s.path}:${s.line} (${s.type ?? "?"}, ${s.target})`);
+        }
+        const out = join(ctx.layout.root, "reports", name, "gap");
+        mkdirSync(out, { recursive: true });
+        writeFileSync(join(out, "gap_report.json"), `${JSON.stringify({ ...r, sites: undefined }, null, 2)}\n`);
+        const header = "split,repo,path,line,type,target,origin,in_frame,by_method";
+        const rows = r.sites.map((s) => [s.split, s.repo, s.path, s.line, s.type ?? "", s.target, s.origin, s.inFrame ? 1 : 0, s.byMethod ? 1 : 0].join(","));
+        writeFileSync(join(out, "gap_sites.csv"), `${[header, ...rows].join("\n")}\n`);
+        console.log(`written to ${out}`);
+      } finally {
+        db.close();
+        labels.dev.close();
+        labels.test.close();
+        cdb.close();
       }
     });
 

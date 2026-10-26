@@ -153,10 +153,11 @@ describe("evaluation against the reference", () => {
     const { units, pending } = alignUnits(t.frame, "dev", t.labels, t.sites, t.links);
     const root = tempDir();
     const audit = join(root, "audit.jsonl");
-    const dir = writeEvaluation(root, "toy", { run: "no-llm", split: "dev", annotator: "A", units, pending, metrics: metricsOf(units) }, { configHash: "h", toolSha: null }, audit);
+    const dir = writeEvaluation(root, "toy", { run: "no-llm", compare: "key", split: "dev", annotator: "A", units, pending, metrics: metricsOf(units) }, { configHash: "h", toolSha: null }, audit);
     const csv = readFileSync(join(dir, "site_results.csv"), "utf8").trim().split("\n");
     expect(csv[0]).toMatch(/^unit,file,repo,path,line,stratum,weight,/);
     expect(csv).toHaveLength(8);
-    expect(JSON.parse(readFileSync(audit, "utf8").trim())).toMatchObject({ target: "toy", run: "no-llm", split: "dev", units: 7 });
+    // the audit entry says how predictions met labels
+    expect(JSON.parse(readFileSync(audit, "utf8").trim())).toMatchObject({ target: "toy", run: "no-llm", compare: "key", split: "dev", units: 7 });
   });
 });

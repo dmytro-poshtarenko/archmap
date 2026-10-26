@@ -12,6 +12,8 @@ import { alignUnits, type Metrics, metricsOf, type SampleFrame, siteResultsCsv, 
 export interface Evaluation {
   /** The run, with `@path` when only paths and names were compared. */
   run: string;
+  /** How a prediction met a label: by the full target key, or by path and name only. */
+  compare: "key" | "path";
   split: Split;
   annotator: string;
   units: Unit[];
@@ -48,7 +50,7 @@ export function evaluateRun(opts: { method: Db; candidates: Db; labels: Db; run:
     return parts && parts.length > 0 ? parts : ["?"];
   };
   const run = opts.compare === "path" ? `${opts.run}@path` : opts.run;
-  return { run, split: opts.split, annotator: opts.annotator, units, pending, metrics: metricsOf(units, partsOf, opts.compare) };
+  return { run, compare: opts.compare ?? "key", split: opts.split, annotator: opts.annotator, units, pending, metrics: metricsOf(units, partsOf, opts.compare) };
 }
 
 /**
@@ -71,7 +73,7 @@ export function writeEvaluation(
   const w = e.metrics.weighted;
   appendFileSync(
     auditFile,
-    `${JSON.stringify({ at: new Date().toISOString(), target, run: e.run, split: e.split, annotator: e.annotator, units: e.units.length, pending: e.pending, recall17: w.recall17, precision: w.precision, theta: w.theta, ...meta })}\n`,
+    `${JSON.stringify({ at: new Date().toISOString(), target, run: e.run, compare: e.compare, split: e.split, annotator: e.annotator, units: e.units.length, pending: e.pending, recall17: w.recall17, precision: w.precision, theta: w.theta, ...meta })}\n`,
   );
   return dir;
 }
