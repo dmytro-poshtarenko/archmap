@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import type { Command } from "commander";
+import { reader } from "../../llm/run.js";
 import { featureRelations } from "../../map/feature.js";
 import type { RelationKind } from "../../map/graph.js";
 import { addFeatureView, buildMap, currentMapDir, currentMapRun, defaultMapRun, graphOf, MODEL_FILE, mapDir, removeFeatureView } from "../../map/run.js";
@@ -21,7 +22,10 @@ export function registerMap(program: Command): void {
       try {
         const run = opts.run ?? defaultMapRun(db);
         const dir = mapDir(ctx.layout.root, ctx.loaded.config.name, run);
-        const { graph, diagnostics } = await buildMap(db, ctx.loaded.config, run, dir, currentMapDir(ctx.layout.root, ctx.loaded.config.name));
+        const { graph, diagnostics } = await buildMap(db, ctx.loaded.config, run, dir, {
+          current: currentMapDir(ctx.layout.root, ctx.loaded.config.name),
+          read: reader(ctx.loaded.config, ctx.layout, ctx.loaded.path),
+        });
         console.log(`run ${run}: ${graph.elements.length} elements, ${graph.relations.length} relations in ${dir}`);
         for (const d of diagnostics) console.log(`  ${d.source ?? ""}:${d.line ?? ""} ${d.message}`);
         console.log(diagnostics.length === 0 ? "LikeC4: no diagnostics" : `LikeC4: ${diagnostics.length} diagnostics`);
@@ -38,7 +42,7 @@ export function registerMap(program: Command): void {
     .option("--run <id>", "run whose map is extended (default: the map built last)")
     .requiredOption("--seeds <seeds>", "comma-separated: element ids, route patterns (/api/v1/rooms.*), ns:<broker service>, coll:<collection>, keywords")
     .option("--depth <n>", "relation hops, 1 to 4", (v) => Number.parseInt(v, 10), 1)
-    .option("--kinds <kinds>", "comma-separated relation kinds: http, ddp, rpc, event, db, trigger, route")
+    .option("--kinds <kinds>", "comma-separated relation kinds: http, ddp, rpc, stream, event, db, route")
     .option("--direction <dir>", "in, out or both", "both")
     .action(async (name: string, opts: { run?: string; seeds: string; depth: number; kinds?: string; direction: string }, cmd: Command) => {
       const ctx = createContext(cmd.optsWithGlobals<GlobalOptions>());

@@ -14,83 +14,105 @@ LikeC4 1.59.4 (`LikeC4.fromWorkspace(...).getErrors()`, the same check as
 
 ### Elements
 
-- The whole system, as one element of kind `system` (`system`), for the C1 view.
-- The parts of the config, as `client`, `service`, `gateway`, `bus`,
-  `database`, `external` and `scheduler`.
+- **The whole system,** as one element of kind `system`, for the C1 view.
+- **The parts of the config:** `client`, `service`, `gateway`, `bus`, `database`, `external` and `scheduler`.
+  - Each gets a `technology` drawn under its title. For a known image it is the product and version (`mongodb/mongodb-community-server:8.0` → MongoDB 8.0, `nats:2.6` → NATS 2.6, `traefik:v3.6` → Traefik 3.6).
+  - Otherwise it is the frameworks the package.json of its code names: React Native, Electron, Next.js, Preact, React, Vue, Angular and Svelte for a client; Node.js with Moleculer, NestJS, Express, Fastify, Koa, hapi, Socket.IO, BullMQ or ws for a server-side container. Meteor is added when the code unit has `.meteor/release`.
+  - A mobile technology draws the client as a phone.
 - **External systems,** one per domain (`ext_slack_com`), from the call sites the method recognised as leaving the system (link status `none`, reason `external`):
   - a base address taken from a setting gets the setting's default value from the code (`{setting:Cloud_Url}` → `https://cloud.rocket.chat`);
   - the domain is the host's last two labels.
-- Inside a part, elements of kind `endpointGroup`:
-  - HTTP routes grouped by their first word (`ep_rooms` for
-    `/api/v1/rooms.*`);
+- **Inside a part, elements of kind `endpointGroup`:**
+  - HTTP routes grouped by their first word (`ep_rooms` for `/api/v1/rooms.*`);
   - `ddp_methods` and `ddp_streams`;
   - broker namespaces (`ns_presence` for `presence.*`).
-- Collections inside the database (`mongo.users`), tagged `#shared` when two
-  or more parts use them.
-- `scheduler` for scheduled jobs.
+- **Collections inside the database** (`mongo.users`). A collection is tagged `#shared` when two or more containers use it with code of their own; shared-code relations do not count.
+- **Scheduled jobs** are a `jobs` element inside the container that registers them. The jobs run in that container's process, so they are not a container of their own.
+- **Summary.** Every element has a `summary`, one line drawn on it: what a part holds (`73 REST groups, 15 DDP methods, 1 DDP subscription, 12 broker namespaces, 18 scheduled jobs`), what a client calls, how many collections a database has. The longer `description` is in its details.
+- **No links.** A client or service with no relation and nothing inside is tagged `#noLinks`. It is drawn faded with a dashed border, and its summary counts its call sites (`No links found: 2 call sites, 2 unresolved`).
+
+### Which containers run a call
+
+A call site belongs to the parts that run it under the run's deployment. The map asks the method's own narrowing, `Resolver.componentsOf`, with the run variant's sources:
+- a broker service class runs only where it is registered;
+- code loaded only under conditions the profile makes false does not run there.
+
+A relation whose every site still belongs to two or more parts is tagged `#sharedCode`: the call sits in a package several containers bundle, e.g. `packages/models`, and which of them makes it is not known. It is drawn dotted grey, its description names the package, and it stays out of the C2 summaries.
 
 ### Relations
 
-Relations are aggregated by (source part, target element, kind):
+Relations are aggregated by (source part, target element, kind). The line says whether a call waits for its answer:
 
-| Kind | Style |
-|---|---|
-| http | Solid blue |
-| ddp | Solid indigo |
-| rpc (broker actions) | Dashed green |
-| event | Dotted amber |
-| db | Solid grey |
-| trigger | Dotted red |
-| route (a gateway's rules) | Dashed teal |
+| Kind | What | Style |
+|---|---|---|
+| http | REST over HTTP | Solid blue |
+| ddp | DDP method | Solid blue |
+| rpc | Broker action | Solid blue |
+| stream | DDP subscription | Dashed amber |
+| event | Broker event | Dashed amber |
+| db | Database access | Solid grey |
+| route | A gateway's rule (gateway views only) | Dashed teal |
 
-- **Events** go from the publisher to the bus and from the bus to the
-  subscriber.
-- **Jobs** go from the scheduler to the part that runs them.
-- **Routes** go from a gateway to each part its rules send requests to, e.g. `traefik → ddp-streamer-service` for `/websocket` and `/sockjs`. They come from the infrastructure step, not from call sites.
-- **Protocols.** Every relation has a `technology` that LikeC4 prints on the arrow:
-  - `HTTP` (`HTTPS` for an external URL that uses it);
+**How relations are drawn and labelled:**
+- **Events** go from the publisher to the bus and from the bus to the subscriber.
+- **Routes** go from a gateway to each part its rules send requests to, e.g. `traefik → ddp-streamer-service` for `/websocket` and `/sockjs`. They come from the infrastructure step, and only the gateway views draw them.
+- **Labels say what.** The names behind a relation are ranked by how many call sites use them, then alphabetically, and the label shows the first three and `+N`.
+  - The prefix the target box already shows is left out: `/api/v1/` before a route of the chat group, `presence.` before an action of `presence.*`.
+  - An arrow to a collection has no title, because the box names the collection.
+- **Protocols.** Every relation has a `technology` that LikeC4 prints under the label:
+  - `HTTP` or `HTTPS`;
   - `WebSocket (DDP)`;
   - `<bus> (RPC)` and `<bus> (events)`;
-  - `<database>`;
-  - `schedule`;
-  - `HTTP, WebSocket` for a gateway rule that routes `/websocket` or `/sockjs`.
-  
-  The bus and database protocols come from the scheme of the URLs other containers reach them by (`TRANSPORTER=nats://nats:4222` → NATS, `MONGO_URL=mongodb://…` → MongoDB), else from their images.
-- **Summary arrows (`#overview`).** For the C2 views, the map adds one relation per pair of containers that stands for every call between them. Its title says what flows (`REST: 474 routes; DDP: 15 methods, 1 subscription`), its technology lists the protocols, and its description lists the names. Broker actions and events that go both ways between two containers become one arrow with a head at each end (`style { tail normal }`), drawn from a service towards the bus.
-  - The C2 views draw only these (`exclude * -> * where tag is not #overview`).
-  - The C3 and feature views draw only the calls themselves.
-  - The feature search ignores them.
-- **Descriptions.** A developer sees these when hovering:
+  - the database's protocol.
+
+  A call that passed a gateway adds `via <gateway>`. DDP over a WebSocket that the gateway sends to another container adds `through <that container>`. The bus and database protocols come from the scheme of the URLs other containers reach them by (`TRANSPORTER=nats://nats:4222` → NATS, `MONGO_URL=mongodb://…` → MongoDB), else from their images.
+- **Summary arrows (`#overview`)** are what the C2 views draw: one per direction between two containers, standing for every call between them.
+  - **Title:** what flows, e.g. `REST: livechat, users, rooms +70 groups (474 routes)`, `RPC: authorization.*, abac.* (26 actions)`, `events: notify.*, watch.*, user.* +13 (60)`. Groups are ranked by how many names they hold.
+  - **Technology:** the protocols written once per base (`NATS (RPC, events)`) and the gateway passed.
+  - **Events** go straight from each publisher to each subscriber of the same event: the C4 "via" notation instead of a hub.
+  - **DDP** that a gateway sends to another container's WebSocket goes to that container; its broker arrow to the method's owner shows the forwarding.
+  - **Left out:** shared-code relations, the gateway's own relations and the bus.
+  - The C3 and feature views draw only the calls themselves, and the feature search ignores summary arrows and gateway relations.
+- **Gateway relations (`#gateway`)**, for the gateway views:
+  - the gateway's rules;
+  - from each part whose calls pass the gateway to the gateway, with what they send.
+- **Descriptions.** A developer reads these in the details:
   - **a part:** what it holds, which parts use it and which it uses, which events it publishes and receives;
   - **an element inside a part:** the routes, methods or names in use there;
-  - **an arrow:** every route behind it, up to twelve, and what decided it.
+  - **an arrow:** every name behind it, up to twelve, what decided it and the number of call sites.
 - **Tags:**
   - `#rules`, `#infra` or `#llm` for what decided the link;
-  - `#ambiguous` when the site keeps several possible targets, one relation
-    to each;
-  - `#viaGateway` when the request passes a gateway.
-- **Metadata:** the cases, one call site, the number of sites and the run.
-- **No code text** reaches the model. Titles name at most two routes, or
-  names, and a count.
+  - `#ambiguous` when the site keeps several possible targets, one relation to each;
+  - `#viaGateway` when the request passes a gateway;
+  - `#sharedCode`, `#overview` and `#gateway` as above.
+- **Metadata:** the cases, one call site, the number of sites, the gateways passed, the container that terminates a WebSocket, and the run.
+- **No code text** reaches the model.
+
+### Notation
+
+The specification defines its own colours, one per element type, and a `notation` text for every element and relationship kind. The viewer's legend lists them. Every view's description starts with what the view shows and ends with a Markdown key to the arrows, line styles and faded boxes.
 
 ### Views
 
 Every title starts with its level of the C4 model.
 
-- `context` (C1): the system and the external systems it calls.
-- `index` (C2): the containers and the links between them, with a description that names the run and explains the arrows and tags.
-  - Containers are grouped in rows: Clients, Gateway, Services (with the scheduled jobs), Message bus, Database. The layout is top to bottom with wider spacing.
-- `external_systems` (C2): the containers that call outside the system and the external systems. These are on a view of their own because their long arrows crossed the whole container view.
+- `context` (C1): the system and the external systems it calls, each arrow counting the endpoints reached.
+- `index` (C2): the containers that run code or hold data (clients, services, databases, schedulers).
+  - `rank source` puts the clients on top and `rank sink` the databases at the bottom.
+  - Only summary arrows are drawn: `exclude * -> * where tag is not #overview`.
+  - `autoLayout TopBottom 160 100`.
+  - The gateway, the bus and external systems are on views of their own.
+- `external_systems` (C2): the containers that call outside the system, and the external systems.
+- `gateway_<name>` (C2): who sends requests through a gateway, and where its rules send them by path.
+- `bus_<name>` (C2): which containers publish events to a bus and which receive them.
 - `of_<part>` (C3): one view per part with elements inside it, titled `C3: <part> (API groups and their callers)`.
   - A part with more than 12 elements inside lays them out top to bottom, not in one row.
   - A database with more than 12 collections shows only the ones two or more parts share, because sharing is the interaction through a database. The view's description counts what it leaves out.
 
-On Rocket.Chat this gives:
-- `full` (rules and infrastructure): 181 elements, 244 relations, no diagnostics;
-- the final map (`full.select.cloud`, the frozen method with the cloud model): 194 elements and 268 relations, no diagnostics:
-  - the system element and 7 external systems;
-  - the 2 gateway routes;
-  - 14 links from containers to external systems and 7 from the system on the C1 view.
+**On Rocket.Chat:**
+- `full` (rules and infrastructure, before the C4 levels): 181 elements, 244 relations, no diagnostics.
+- The final map (`full.select.cloud`, the frozen method with the cloud model): 195 elements, 293 relations, no diagnostics.
+- The C2 view has 12 containers and 24 summary arrows. Six pairs of arrows cross, against 31 before the review; the count is the reviewer's strict one on LikeC4's own layout.
 
 ## Feature views
 

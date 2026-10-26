@@ -11,6 +11,7 @@ import { extractInfra, writeInfra } from "../../src/infra/index.js";
 import { renderModel } from "../../src/map/dsl.js";
 import { featureOf, slugOf } from "../../src/map/feature.js";
 import { buildGraph, type MapElement, type MapGraph } from "../../src/map/graph.js";
+import { reader } from "../../src/llm/run.js";
 import { addFeatureView, buildMap, MODEL_FILE } from "../../src/map/run.js";
 import { runMatch } from "../../src/match/run.js";
 import { openDb } from "../../src/store/db.js";
@@ -35,14 +36,14 @@ async function workspace() {
   writeInfra(db, await extractInfra({ config, files, dirOf }), "t");
   runClassify(db, config);
   runMatch(db, config, { rules: true, infra: true, llm: false }, { configHash: loaded.hash });
-  return { db, config, data };
+  return { db, config, data, read: reader(config, layout, loaded.path) };
 }
 
 describe("the LikeC4 map", () => {
   it("draws mini-complex with no diagnostics", async () => {
-    const { db, config, data } = await workspace();
+    const { db, config, data, read } = await workspace();
     const dir = join(data, "likec4");
-    const { graph, diagnostics } = await buildMap(db, config, "no-llm", dir);
+    const { graph, diagnostics } = await buildMap(db, config, "no-llm", dir, { read });
     expect(diagnostics).toEqual([]);
     const rel = (s: string, t: string) => graph.relations.find((r) => r.source === s && r.target === t);
     expect(rel("web", "api.ep_orders")).toMatchObject({ kind: "http", tags: ["rules", "viaGateway"], metadata: { case: "3", sites: "3", run: "no-llm" } });
@@ -50,27 +51,39 @@ describe("the LikeC4 map", () => {
     expect(rel("api", "redis")?.kind).toBe("event");
     expect(rel("redis", "worker")?.kind).toBe("event");
     // the gateway's rules: / serves the web client, /api the API
-    expect(rel("traefik", "web")).toMatchObject({ kind: "route", title: "/", tags: ["infra"] });
+    expect(rel("traefik", "web")).toMatchObject({ kind: "route", title: "/", tags: ["infra", "gateway"] });
     expect(rel("traefik", "api")).toMatchObject({ kind: "route", title: "/api" });
     expect(graph.elements.find((e) => e.id === "traefik")?.description).toBe("Gateway. Routes /api to api. Routes / to web.");
     const text = readFileSync(join(dir, MODEL_FILE), "utf8");
     expect(text).toContain("view index");
     expect(text).not.toMatch(/fetch\(|http\.get\(/);
     // a developer hovering an element or an arrow sees what is behind it
-    expect(graph.elements.find((e) => e.id === "worker")?.description).toBe("Service. Uses api. Receives events from redis.");
-    expect(rel("web", "api.ep_orders")?.description).toMatch(/^GET \/api\/orders.*Decided by rules; 3 call sites\.$/);
-    expect(text).toContain("Arrows: http solid blue");
+    expect(graph.elements.find((e) => e.id === "worker")?.description).toBe("Server-side container. Uses api. Receives events from redis.");
+    // labels leave out what the target box already shows: the /api/ prefix of the orders group
+    expect(rel("web", "api.ep_orders")?.title).toBe("GET orders, GET orders/:id, POST orders");
+    expect(rel("web", "api.ep_orders")?.description).toMatch(/^GET orders.*Decided by rules; 3 call sites\.$/);
+    expect(text).toContain("Solid blue arrow: request and response");
+    // what each part is built with, from its image or its package.json
+    const tech = (id: string) => graph.elements.find((e) => e.id === id)?.technology;
+    expect([tech("api"), tech("worker"), tech("redis"), tech("traefik"), tech("web")]).toEqual(["Node.js, Express, BullMQ", "Node.js, BullMQ", "Redis 7", "Traefik 3.1", undefined]);
     // each view names its level of the C4 model
     expect(text).toContain("view context {\n    title 'C1: mini system context'");
     expect(text).toContain("view index {\n    title 'C2: mini containers and the links between them'");
-    // every arrow names its protocol, the bus's taken from the infrastructure
-    expect(rel("web", "api.ep_orders")?.technology).toBe("HTTP");
+    // every arrow names its protocol and the gateway it passes, the bus's protocol taken from the infrastructure
+    expect(rel("web", "api.ep_orders")?.technology).toBe("HTTP via traefik");
     expect(rel("api", "redis")?.technology).toBe("Redis (events)");
-    // the C2 view: containers in rows, one arrow per pair standing for every call between them
+    // the C2 view: clients on top, one arrow per direction, events straight from publisher to subscriber
     const overview = graph.relations.filter((r) => r.tags.includes("overview"));
-    expect(overview.find((r) => r.source === "web" && r.target === "api")).toMatchObject({ kind: "http", title: "REST: 5 routes", technology: "HTTP" });
-    expect(text).toContain("group 'Clients' {\n      include web\n    }");
+    expect(overview.map((r) => [r.source, r.target, r.title, r.technology])).toEqual([
+      ["web", "api", "REST: orders, users (5 routes)", "HTTP via traefik"],
+      ["worker", "api", "REST: /api/orders/:id", "HTTP"],
+      ["api", "worker", "events: emails (1)", "Redis (events)"],
+    ]);
+    expect(text).toContain("rank source {\n      web\n    }");
     expect(text).toContain("exclude * -> * where tag is not #overview");
+    // the gateway and the bus each have a view of their own
+    expect(text).toContain("view gateway_traefik {");
+    expect(text).toContain("view bus_redis {");
     expect(JSON.parse(readFileSync(join(dir, "likec4.config.json"), "utf8"))).toEqual({ name: "mini", title: "mini: C4 Diagrams" });
   }, 60_000);
 
@@ -78,9 +91,8 @@ describe("the LikeC4 map", () => {
     const { db, config, data } = await workspace();
     const dir = join(data, "likec4");
     const { graph } = await buildMap(db, config, "no-llm", dir);
-    // orders: who calls the orders routes and what follows from them, two hops either way;
-    // the gateway comes in because it serves the web client
-    expect(featureOf(graph, { name: "Orders", seeds: ["/api/orders*"], depth: 2 }).elements).toEqual(["api.ep_orders", "api.ep_users", "redis", "traefik", "web", "worker"]);
+    // orders: who calls the orders routes and what follows from them, two hops either way
+    expect(featureOf(graph, { name: "Orders", seeds: ["/api/orders*"], depth: 2 }).elements).toEqual(["api.ep_orders", "api.ep_users", "redis", "web", "worker"]);
     // the worker's own dependencies only
     expect(featureOf(graph, { name: "Worker", seeds: ["worker"], depth: 1, direction: "out" }).elements).toEqual(["api.ep_orders", "worker"]);
     // the queue: publishers and subscribers of events
@@ -88,7 +100,7 @@ describe("the LikeC4 map", () => {
     const { feature, diagnostics } = await addFeatureView(graph, dir, { name: "Orders", seeds: ["/api/orders*"], depth: 2 }, "no-llm");
     expect(diagnostics).toEqual([]);
     const view = readFileSync(join(dir, `feature_${feature.slug}.c4`), "utf8");
-    expect(view).toContain("include api.ep_orders, api.ep_users, redis, traefik, web, worker");
+    expect(view).toContain("include api.ep_orders, api.ep_users, redis, web, worker");
     expect(view).toContain("description 'Seeds: /api/orders*; 2 hops both ways; kinds: all; run no-llm.'");
     // endpoint groups inside the api make it a C3 view
     expect(view).toContain("title 'C3: Orders'");
@@ -131,30 +143,75 @@ describe("the LikeC4 map", () => {
   });
 });
 
-describe("the C2 summary arrows", () => {
-  it("draw broker calls that go both ways as one arrow with two heads, from a service to the bus", () => {
-    const config = { name: "t", repos: [], components: [
+describe("the graph's rules", () => {
+  const config = {
+    name: "t",
+    repos: [],
+    components: [
+      { id: "web", kind: "client", include: [] },
       { id: "a", kind: "service", include: [] },
       { id: "b", kind: "service", include: [] },
+      { id: "mob", kind: "client", include: [] },
+      { id: "gw", kind: "gateway", include: [] },
       { id: "bus", kind: "bus", include: [] },
-    ] } as never;
-    const site = (id: string, component: string, role: string) =>
-      ({ id, repo: "r", path: "p", line: 1, endLine: 1, col: 1, type: "broker", role, detector: "d", method: null, address: { parts: [] }, components: [component], liftedFrom: null }) as never;
-    const link = (s: string, target: string) => ({ site: s, status: "linked", target, route: null, component: null, reason: null, via: [], provenance: "rules", caseNo: 1, alternatives: [] });
-    const graph = buildGraph(
-      config,
-      "run",
-      [site("s1", "a", "request"), site("s2", "b", "request"), site("s3", "a", "publish"), site("s4", "a", "subscribe")],
-      [link("s1", "action:-:b.do@b"), link("s2", "action:-:a.do@a"), link("s3", "event:-:e1@*"), link("s4", "event:-:e2@*")],
-      { protocols: { bus: "NATS" } },
-    );
-    const overview = graph.relations.filter((r) => r.tags.includes("overview"));
-    expect(overview.map((r) => [r.source, r.target, r.title, r.technology, r.bothWays])).toEqual([
-      ["a", "b", "RPC: 2 actions (both ways)", "NATS (RPC)", true],
-      ["a", "bus", "events: 2 (both ways)", "NATS (events)", true],
+      { id: "db", kind: "database", include: [] },
+    ],
+  } as never;
+  const site = (id: string, components: string[], role = "request", type = "broker") =>
+    ({ id, repo: "r", path: `${id}.ts`, line: 1, endLine: 1, col: 1, type, role, detector: "d", method: null, address: { parts: [] }, components, liftedFrom: null }) as never;
+  const link = (s: string, target: string, via: string[] = []) => ({ site: s, status: "linked", target, route: null, component: null, reason: null, via, provenance: "rules", caseNo: 1, alternatives: [] });
+  const overview = (g: MapGraph) => g.relations.filter((r) => r.tags.includes("overview")).map((r) => [r.source, r.target, r.title]);
+
+  it("draws events straight from publisher to subscriber on the C2 view, the bus left out", () => {
+    const g = buildGraph(config, "run", [site("p", ["a"], "publish"), site("s", ["b"], "subscribe")], [link("p", "event:-:orders.created@*"), link("s", "event:-:orders.created@*")], { protocols: { bus: "NATS" } });
+    expect(g.relations.filter((r) => !r.tags.includes("overview")).map((r) => [r.source, r.target, r.technology])).toEqual([
+      ["a", "bus", "NATS (events)"],
+      ["bus", "b", "NATS (events)"],
     ]);
-    // the calls themselves keep their direction
-    expect(graph.relations.filter((r) => !r.tags.includes("overview")).map((r) => [r.source, r.target, r.technology])).toContainEqual(["bus", "a", "NATS (events)"]);
+    expect(g.relations.filter((r) => r.tags.includes("overview")).map((r) => [r.source, r.target, r.title, r.technology])).toEqual([["a", "b", "events: orders.* (1)", "NATS (events)"]]);
+  });
+
+  it("keeps a call site to the parts the deployment runs it in, and marks code several parts bundle", () => {
+    const sites = [site("own", ["a", "b"]), site("shared", ["a", "b"], "access", "db")];
+    const links = [link("own", "action:-:x.do@db"), link("shared", "coll:-:users@db")];
+    // the method narrows the first site to a; the second stays in both, so it is shared code
+    const g = buildGraph(config, "run", sites, links, { componentsOf: (s) => ((s as { id: string }).id === "own" ? ["a"] : ["a", "b"]), packageOf: () => "packages/models" });
+    expect(g.relations.filter((r) => r.kind === "rpc" && !r.tags.includes("overview")).map((r) => r.source)).toEqual(["a"]);
+    const users = g.relations.filter((r) => r.target === "db.users");
+    expect(users.map((r) => [r.source, r.tags.includes("sharedCode")])).toEqual([
+      ["a", true],
+      ["b", true],
+    ]);
+    expect(users[0]?.description).toContain("every call sits in packages/models that several containers bundle");
+    // shared code stays off the C2 view, and a collection only shared code reaches is not shared
+    expect(overview(g)).toEqual([["a", "db", "RPC: x.* (1 action)"]]);
+    expect(g.elements.find((e) => e.id === "db.users")?.tags).not.toContain("shared");
+  });
+
+  it("puts scheduled jobs inside the container that registers them", () => {
+    const g = buildGraph(config, "run", [site("j", ["a"], "schedule", "trigger")], [link("j", "timer:-:Cleanup@a")]);
+    expect(g.elements.find((e) => e.id === "a.jobs")).toMatchObject({ kind: "jobs", summary: "1 job" });
+    expect(g.elements.some((e) => e.kind === "scheduler")).toBe(false);
+    expect(g.elements.find((e) => e.id === "a")?.summary).toBe("1 scheduled job");
+  });
+
+  it("sends DDP to the container that terminates the gateway's WebSocket", () => {
+    const routing = [{ gateway: "gw", target: "b", paths: ["/websocket"], sources: ["c:1"] }, { gateway: "gw", target: "a", paths: ["/"], sources: ["c:2"] }];
+    const g = buildGraph(config, "run", [site("m", ["web"], "request", "ddp")], [link("m", "ddp:call:sendMessage@a", ["gw"])], { routing });
+    expect(g.relations.find((r) => r.source === "web" && r.target === "a.ddp_methods")?.technology).toBe("WebSocket (DDP) through b");
+    expect(overview(g)).toEqual([["web", "b", "DDP methods: sendMessage"]]);
+    // the gateway's view: who sends requests through it, and where its rules send them
+    expect(g.relations.filter((r) => r.tags.includes("gateway")).map((r) => [r.source, r.target, r.title])).toEqual([
+      ["gw", "a", "/"],
+      ["gw", "b", "/websocket"],
+      ["web", "gw", "DDP methods"],
+    ]);
+  });
+
+  it("says on a container that the method found no links for it", () => {
+    const g = buildGraph(config, "run", [site("x", ["mob"], "request", "http"), site("y", ["a"])], [{ ...link("x", "NONE"), status: "unresolved", target: null }, link("y", "action:-:b.do@b")]);
+    expect(g.elements.find((e) => e.id === "mob")).toMatchObject({ tags: ["noLinks"], summary: "No links found: 1 call site, 1 unresolved" });
+    expect(g.elements.find((e) => e.id === "a")?.tags).not.toContain("noLinks");
   });
 });
 
@@ -183,7 +240,7 @@ describe("the archmap MCP server", () => {
       expect(open).toEqual({ run: "no-llm", total: 0, sites: [] });
 
       const view = text(await client.callTool({ name: "create_feature_view", arguments: { name: "Orders", seeds: ["/api/orders*"], depth: 2, run: "no-llm" } }));
-      expect(view).toMatchObject({ view: "feature_orders", elements: ["api.ep_orders", "api.ep_users", "redis", "traefik", "web", "worker"], diagnostics: [] });
+      expect(view).toMatchObject({ view: "feature_orders", elements: ["api.ep_orders", "api.ep_users", "redis", "web", "worker"], diagnostics: [] });
       expect(view.open).toMatch(/^http:\/\/localhost:5173\/view\/feature_orders\//);
       expect(view.links).toContainEqual(expect.objectContaining({ from: "web", to: "api.ep_orders", kind: "http" }));
 

@@ -71,7 +71,7 @@ export function createServer(ctx: McpContext): McpServer {
         }
         const run = drawnRun(db, matched.run);
         const dir = mapDir(ctx.layout.root, config.name, run);
-        const { graph, diagnostics } = await buildMap(db, config, run, dir, currentMapDir(ctx.layout.root, config.name));
+        const { graph, diagnostics } = await buildMap(db, config, run, dir, { current: currentMapDir(ctx.layout.root, config.name), read: reader(config, ctx.layout, ctx.loaded.path) });
         return json({ run, dir, open: `${VIEWER}/index/`, cases: classified.byCase, status: matched.byStatus, resolved, elements: graph.elements.length, relations: graph.relations.length, diagnostics });
       } catch (error) {
         return failure(error);
@@ -144,7 +144,7 @@ export function createServer(ctx: McpContext): McpServer {
         name: z.string().min(1),
         seeds: z.array(z.string().min(1)).min(1),
         depth: z.number().int().min(1).max(4).default(1),
-        kinds: z.array(z.enum(["http", "ddp", "rpc", "event", "db", "trigger", "route"])).optional(),
+        kinds: z.array(z.enum(["http", "ddp", "rpc", "stream", "event", "db", "route"])).optional(),
         direction: z.enum(["in", "out", "both"]).default("both"),
         run: z.string().optional(),
       },

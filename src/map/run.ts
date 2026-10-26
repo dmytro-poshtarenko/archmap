@@ -1,8 +1,8 @@
 import { existsSync, lstatSync, mkdirSync, readdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative } from "node:path";
 import type { TargetConfig } from "../config/schema.js";
-import { loadSites } from "../extract/run.js";
-import { loadLinks } from "../match/run.js";
+import type { Sources } from "../match/resolve.js";
+import { loadLinks, matchingOf } from "../match/run.js";
 import { type Db, getMeta } from "../store/db.js";
 import { renderModel } from "./dsl.js";
 import { type Feature, type FeatureRequest, featureOf, renderFeature, slugOf } from "./feature.js";
@@ -40,10 +40,126 @@ export function productName(config: TargetConfig): string {
   return url?.replace(/\.git$/, "").split("/").filter(Boolean).pop() ?? config.name;
 }
 
-export function graphOf(db: Db, config: TargetConfig, run: string): MapGraph {
+/** Reads a file of a repository of the target; it throws when the file does not exist. */
+export type RepoReader = (repo: string, path: string) => string;
+
+/**
+ * The map of a run. A call site belongs to the parts that run it under the
+ * run's deployment, as the method narrows them (service registrations and
+ * load conditions the profile switches off); with a reader, the parts also
+ * get the technologies their package.json and images name.
+ */
+export function graphOf(db: Db, config: TargetConfig, run: string, read?: RepoReader): MapGraph {
   const links = loadLinks(db, run);
   if (links.length === 0) throw new Error(`run '${run}' has no links; run \`archmap match\` first`);
-  return buildGraph(config, run, loadSites(db), links, { routing: loadRouting(db), externals: loadExternals(db, run), product: productName(config), protocols: loadProtocols(db) });
+  const { resolver, sites } = matchingOf(db, config);
+  const sources = sourcesOf(db, run);
+  const units = new Map((db.prepare("SELECT repo_id AS repo, path, code_unit AS unit FROM file").all() as Array<{ repo: string; path: string; unit: string | null }>).map((f) => [`${f.repo}:${f.path}`, f.unit]));
+  return buildGraph(config, run, sites, links, {
+    routing: loadRouting(db),
+    externals: loadExternals(db, run),
+    product: productName(config),
+    protocols: loadProtocols(db),
+    technologies: read ? loadTechnologies(db, config, read) : undefined,
+    componentsOf: (site) => resolver.componentsOf(site, sources),
+    packageOf: (site) => {
+      const unit = units.get(`${site.repo}:${site.path}`);
+      const root = unit ? unit.slice(unit.indexOf(":") + 1) : null;
+      return root && root !== "." ? root : site.repo;
+    },
+  });
+}
+
+/** What the run's variant lets the narrowing use: with the infrastructure, the deployment's environment. */
+function sourcesOf(db: Db, run: string): Sources {
+  const row = db.prepare("SELECT variant FROM run WHERE id = ?").get(run) as { variant: string } | undefined;
+  const v = row ? (JSON.parse(row.variant) as { rules?: boolean; infra?: boolean; llm?: boolean }) : {};
+  return { rules: v.rules ?? true, llmRoutes: v.llm ?? true, env: v.infra ?? true, gateway: v.infra ?? true };
+}
+
+/** Frameworks a package.json names, for a client and for a server-side container. */
+const CLIENT_FRAMEWORKS: Array<[string, string]> = [
+  ["react-native", "React Native"],
+  ["electron", "Electron"],
+  ["next", "Next.js"],
+  ["preact", "Preact"],
+  ["react", "React"],
+  ["vue", "Vue"],
+  ["@angular/core", "Angular"],
+  ["svelte", "Svelte"],
+];
+const SERVER_FRAMEWORKS: Array<[string, string]> = [
+  ["moleculer", "Moleculer"],
+  ["@nestjs/core", "NestJS"],
+  ["express", "Express"],
+  ["fastify", "Fastify"],
+  ["koa", "Koa"],
+  ["@hapi/hapi", "hapi"],
+  ["next", "Next.js"],
+  ["socket.io", "Socket.IO"],
+  ["bullmq", "BullMQ"],
+  ["ws", "ws (WebSocket)"],
+];
+/** Products an image names, for parts that run a known image: databases, buses, gateways. */
+const PRODUCTS: Array<[string, string]> = [
+  ["mongo", "MongoDB"],
+  ["nats", "NATS"],
+  ["redis", "Redis"],
+  ["rabbitmq", "RabbitMQ"],
+  ["kafka", "Kafka"],
+  ["postgres", "PostgreSQL"],
+  ["mysql", "MySQL"],
+  ["mariadb", "MariaDB"],
+  ["traefik", "Traefik"],
+  ["nginx", "nginx"],
+  ["envoy", "Envoy"],
+  ["haproxy", "HAProxy"],
+];
+
+/**
+ * What each part is built with: a known product and version from its
+ * container image (`mongodb/mongodb-community-server:8.0` → MongoDB 8.0), else
+ * the frameworks the package.json of its code names, with Meteor when the
+ * code unit is a Meteor app (`.meteor/release`).
+ */
+function loadTechnologies(db: Db, config: TargetConfig, read: RepoReader): Record<string, string> {
+  const out: Record<string, string> = {};
+  const tryRead = (repo: string, path: string) => {
+    try {
+      return read(repo, path);
+    } catch {
+      return null;
+    }
+  };
+  for (const c of db.prepare("SELECT component, image FROM container WHERE component IS NOT NULL AND image IS NOT NULL").all() as Array<{ component: string; image: string }>) {
+    const [name, tag] = c.image.toLowerCase().split(/:(?=[^/:]*$)/) as [string, string | undefined];
+    const product = PRODUCTS.find(([k]) => name.includes(k));
+    const version = tag ? /\d+(?:\.\d+)?/.exec(tag)?.[0] : undefined;
+    if (product) out[c.component] ??= version ? `${product[1]} ${version}` : product[1];
+  }
+  const kindOf = new Map(config.components.map((c) => [c.id, c.kind]));
+  const units = db.prepare("SELECT DISTINCT f.component AS component, cu.repo_id AS repo, cu.root AS root FROM file f JOIN code_unit cu ON cu.id = f.code_unit WHERE f.component IS NOT NULL").all() as Array<{ component: string; repo: string; root: string }>;
+  const found = new Map<string, string[]>();
+  for (const u of units) {
+    const dir = u.root === "." ? "" : `${u.root}/`;
+    const pkg = tryRead(u.repo, `${dir}package.json`);
+    if (pkg === null) continue;
+    let deps: Record<string, string> = {};
+    try {
+      const parsed = JSON.parse(pkg) as { dependencies?: Record<string, string>; devDependencies?: Record<string, string> };
+      deps = { ...parsed.dependencies, ...parsed.devDependencies };
+    } catch {
+      continue;
+    }
+    const client = kindOf.get(u.component) === "client";
+    const names = (client ? CLIENT_FRAMEWORKS : SERVER_FRAMEWORKS).filter(([k]) => k in deps).map(([, label]) => label);
+    // React under React Native or Preact is a compatibility layer, not the framework
+    const own = names.filter((n) => !(n === "React" && (names.includes("React Native") || names.includes("Preact"))));
+    const meteor = tryRead(u.repo, `${dir}.meteor/release`) !== null ? ["Meteor"] : [];
+    found.set(u.component, [...new Set([...(found.get(u.component) ?? []), ...(client ? [] : ["Node.js"]), ...meteor, ...own])]);
+  }
+  for (const [component, names] of found) if (names.length > 0) out[component] ??= names.join(", ");
+  return out;
 }
 
 /** Protocol names by URL scheme and by container image. */
@@ -138,8 +254,15 @@ function loadRouting(db: Db): GatewayRoute[] {
  * views made earlier) and validates it. A valid map becomes the one `current`
  * points to, when that link is given.
  */
-export async function buildMap(db: Db, config: TargetConfig, run: string, dir: string, current?: string): Promise<{ graph: MapGraph; diagnostics: Diagnostic[] }> {
-  const graph = graphOf(db, config, run);
+export async function buildMap(
+  db: Db,
+  config: TargetConfig,
+  run: string,
+  dir: string,
+  opts: { current?: string; read?: RepoReader } = {},
+): Promise<{ graph: MapGraph; diagnostics: Diagnostic[] }> {
+  const { current, read } = opts;
+  const graph = graphOf(db, config, run, read);
   mkdirSync(dir, { recursive: true });
   const product = productName(config);
   const containers = graph.elements.filter((e) => e.parent === null && e.kind !== "system" && e.kind !== "external").length;

@@ -155,17 +155,30 @@ C4 model:
 
 | Level | View | What it shows |
 |---|---|---|
-| C1 | `context` | The system as one box and the external systems its code calls, one per domain. |
-| C2 | `index` | The containers in rows: clients, gateway, services, message bus, database. One arrow per pair of containers stands for every call between them, with what flows and by which protocol, e.g. `REST: 474 routes; DDP: 15 methods [HTTP, WebSocket (DDP)]`. Broker calls both ways get one arrow with two heads. |
+| C1 | `context` | The system as one box and the external systems its code calls, one per domain, with the endpoints reached. |
+| C2 | `index` | The containers that run code or hold data. Clients sit on top and databases at the bottom. One arrow per direction says what flows and by which protocol, e.g. `REST: livechat, users, rooms +70 groups (474 routes)` [HTTP via traefik]. Events go straight from publisher to subscriber, and DDP goes to the container that terminates the gateway's WebSocket. |
 | C2 | `external_systems` | The containers that call systems outside the product, and those systems. |
-| C3 | `of_<container>` | One container from inside: endpoint groups, DDP methods and subscriptions, broker namespaces, and who calls them. The database view keeps the collections two or more containers share. |
+| C2 | `gateway_<name>` | Who sends requests through a gateway, and where its rules send them by path. |
+| C2 | `bus_<name>` | Which containers publish events to a message bus and which receive them. |
+| C3 | `of_<container>` | One container from inside: REST groups, DDP methods and subscriptions, broker namespaces, scheduled jobs, and who calls them. The database view keeps the collections two or more containers share. |
 | C2 or C3 | `feature_<name>` | The containers and components one feature uses (below). |
 
-**Reading the views.**
-- Hover an element for what it holds and who uses it, an arrow for its routes and what decided it.
-- **Protocols.** Each arrow names its protocol: `HTTP` or `HTTPS`, `WebSocket (DDP)`, the broker's transport for RPC and events (`NATS (RPC)`, `NATS (events)`), and the database's protocol (`MongoDB`). The bus and database protocols come from the URLs in the deployment descriptions (`TRANSPORTER=nats://…`), else from the container images.
-- **Arrows:** `http` solid blue, `ddp` solid indigo, `rpc` (broker actions) dashed green, `event` dotted amber, `db` solid grey, `trigger` dotted red, `route` (a gateway's rules) dashed teal.
-- **Tags:** `#rules`, `#infra` and `#llm` say what decided a link.
+**Reading the views.** Every view's description has the key, and the viewer's legend lists the element types.
+
+| What you see | What it means |
+|---|---|
+| Box colour and shape | The element's type: client application, server-side container, database, message bus, gateway, external system, API group, collection, scheduled jobs. |
+| Text in a box | The technology, from the container image or the package.json (`Node.js, Moleculer`, `MongoDB 8.0`), then a one-line summary. |
+| Solid blue arrow | Request and response: REST, a DDP method, a broker action. |
+| Dashed amber arrow | Asynchronous: a broker event, a DDP subscription. |
+| Grey arrow | Database access. |
+| Dotted grey arrow | Only shared code links the two. The call sits in a package several containers bundle, so which of them makes it is not known. |
+| Text in brackets under a label | The protocol, and the gateway or the container the traffic passes: `HTTP via traefik`, `WebSocket (DDP) through ddp-streamer-service`, `NATS (RPC, events)`, `MongoDB`. |
+| Faded box with a dashed border | The method found no links for that container. Its summary counts the call sites it has. |
+
+Bus and database protocols come from the URLs in the deployment descriptions (`TRANSPORTER=nats://…`), else from the container images.
+
+**Which containers run a call.** A call site belongs to the containers that run it under the deployment, as the method narrows them. A broker service registered only in some containers runs only there. Code loaded only under conditions the profile makes false does not run.
 
 ### One feature
 
