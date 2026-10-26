@@ -42,6 +42,8 @@ export interface MapExtras {
   componentsOf?: (site: CallSite) => string[];
   /** The package a call site's file belongs to, e.g. `packages/models`. */
   packageOf?: (site: CallSite) => string | null;
+  /** The parts with code in the workspace; without it, every part counts as read. */
+  analysed?: Set<string>;
 }
 
 /** Tag of the relations the C2 views draw: one per direction between two containers, standing for every call between them. */
@@ -241,7 +243,7 @@ export function buildGraph(config: TargetConfig, run: string, sites: CallSite[],
   }
   out.sort((a, b) => (a.source + a.target + a.kind < b.source + b.target + b.kind ? -1 : 1));
   const list = [...elements.values()].sort((a, b) => (a.id < b.id ? -1 : 1));
-  markNoLinks(list, out, sites, links, partsOf);
+  markNoLinks(list, out, sites, links, partsOf, extras.analysed);
   describeElements(list, out, protocols);
   out.push(...overviewRelations(out, elements, websocketOf, busProtocol, run));
   return { elements: list, relations: out };
@@ -499,7 +501,8 @@ function systemRelations(relations: MapRelation[], elements: Map<string, MapElem
 }
 
 /** Containers the method found no links for get a tag and say so on the diagram, with how many call sites they have. */
-function markNoLinks(elements: MapElement[], relations: MapRelation[], sites: CallSite[], links: StoredLink[], partsOf: (s: CallSite) => string[]): void {
+function markNoLinks(elements: MapElement[], relations: MapRelation[], sites: CallSite[], links: StoredLink[], partsOf: (s: CallSite) => string[], analysed?: Set<string>): void {
+  const read = analysed ? new Set([...analysed].map(ident)) : null;
   const linkOf = new Map(links.map((l) => [l.site, l]));
   for (const e of elements) {
     if (e.parent !== null || (e.kind !== "client" && e.kind !== "service")) continue;
@@ -512,7 +515,9 @@ function markNoLinks(elements: MapElement[], relations: MapRelation[], sites: Ca
       return status === "unresolved" || status === "ambiguous";
     }).length;
     e.tags.push(NO_LINKS);
-    e.summary = own.length === 0 ? "No links found: no call sites in its code" : `No links found: ${count(own.length, "call site")}, ${open} unresolved`;
+    // a part whose code the workspace lacks, e.g. a repository held out, was not read: "no call sites" would claim too much
+    if (read && !read.has(e.id)) e.summary = "Not analysed: none of its code is in the workspace";
+    else e.summary = own.length === 0 ? "No links found: no call sites in its code" : `No links found: ${count(own.length, "call site")}, ${open} unresolved`;
   }
 }
 

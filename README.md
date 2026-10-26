@@ -174,7 +174,7 @@ C4 model:
 | Grey arrow | Database access. |
 | Dotted grey arrow | Only shared code links the two. The call sits in a package several containers bundle, so which of them makes it is not known. |
 | Text in brackets under a label | The protocol, and the gateway or the container the traffic passes: `HTTP via traefik`, `WebSocket (DDP) through ddp-streamer-service`, `NATS (RPC, events)`, `MongoDB`. |
-| Light grey box | The method found no links for that container. Its summary counts the call sites it has. |
+| Light grey box | The method found no links for that container. Its summary counts the call sites it has, or says that none of its code was in the workspace. |
 
 Bus and database protocols come from the URLs in the deployment descriptions (`TRANSPORTER=nats://…`), else from the container images.
 

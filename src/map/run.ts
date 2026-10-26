@@ -62,12 +62,20 @@ export function graphOf(db: Db, config: TargetConfig, run: string, read?: RepoRe
     protocols: loadProtocols(db),
     technologies: read ? loadTechnologies(db, config, read) : undefined,
     componentsOf: (site) => resolver.componentsOf(site, sources),
+    analysed: analysedParts(db),
     packageOf: (site) => {
       const unit = units.get(`${site.repo}:${site.path}`);
       const root = unit ? unit.slice(unit.indexOf(":") + 1) : null;
       return root && root !== "." ? root : site.repo;
     },
   });
+}
+
+/** The parts of the system with code in the workspace. */
+function analysedParts(db: Db): Set<string> {
+  const out = new Set(db.prepare("SELECT DISTINCT component FROM file WHERE component IS NOT NULL").pluck().all() as string[]);
+  for (const components of db.prepare("SELECT components FROM file_usage").pluck().all() as string[]) for (const c of JSON.parse(components) as string[]) out.add(c);
+  return out;
 }
 
 /** What the run's variant lets the narrowing use: with the infrastructure, the deployment's environment. */

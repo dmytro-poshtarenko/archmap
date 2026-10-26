@@ -161,7 +161,7 @@ export const KEY = [
   "- Dashed amber arrow: asynchronous (a broker event, a DDP subscription).",
   "- Grey arrow: database access. Dotted grey: only shared code links the two, so which container makes the call is not known.",
   "- Under each label, in brackets: the protocol, and the gateway or container the traffic passes.",
-  "- Light grey box: the method found no links for that container.",
+  "- Light grey box: no links found for that container, or none of its code was read; the box says which.",
   "- Open an element or an arrow for the names behind it.",
 ].join("\n");
 

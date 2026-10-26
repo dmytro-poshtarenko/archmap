@@ -29,7 +29,7 @@ LikeC4 1.59.4 (`LikeC4.fromWorkspace(...).getErrors()`, the same check as
 - **Collections inside the database** (`mongo.users`). A collection is tagged `#shared` when two or more containers use it with code of their own; shared-code relations do not count.
 - **Scheduled jobs** are a `jobs` element inside the container that registers them. The jobs run in that container's process, so they are not a container of their own.
 - **Summary.** Every element has a `summary`, one line drawn on it: what a part holds (`73 REST groups, 15 DDP methods, 1 DDP subscription, 12 broker namespaces, 18 scheduled jobs`), what a client calls, how many collections a database has. The longer `description` is in its details.
-- **No links.** A client or service with no relation and nothing inside is tagged `#noLinks`. It is drawn light grey, and its summary counts its call sites (`No links found: 2 call sites, 2 unresolved`).
+- **No links.** A client or service with no relation and nothing inside is tagged `#noLinks`. It is drawn light grey, and its summary counts its call sites (`No links found: 2 call sites, 2 unresolved`). When none of its code is in the workspace, for example a repository held out until the freeze, the summary says `Not analysed: none of its code is in the workspace` instead of claiming it has no call sites.
 
 ### Which containers run a call
 

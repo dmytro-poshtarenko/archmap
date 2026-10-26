@@ -250,6 +250,9 @@ describe("the graph's rules", () => {
     const g = buildGraph(config, "run", [site("x", ["mob"], "request", "http"), site("y", ["a"])], [{ ...link("x", "NONE"), status: "unresolved", target: null }, link("y", "action:-:b.do@b")]);
     expect(g.elements.find((e) => e.id === "mob")).toMatchObject({ tags: ["noLinks"], summary: "No links found: 1 call site, 1 unresolved" });
     expect(g.elements.find((e) => e.id === "a")?.tags).not.toContain("noLinks");
+    // a part whose code the workspace lacks was not read, which is not the same as having no call sites
+    const unread = buildGraph(config, "run", [site("y", ["a"])], [link("y", "action:-:b.do@b")], { analysed: new Set(["web", "a", "b"]) });
+    expect(unread.elements.find((e) => e.id === "mob")?.summary).toBe("Not analysed: none of its code is in the workspace");
     // a leaf box shows a colour, not opacity or a border style
     expect(renderModel(g, "Shop", "")).toMatch(/mob = client 'mob' \{[^}]*style \{\s*color c4-nolinks\s*\}/);
   });
