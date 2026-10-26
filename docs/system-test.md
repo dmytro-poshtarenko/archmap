@@ -135,9 +135,11 @@ It also took `uikit-playground`, a playground app. The held-out mobile repositor
 **Without `rocketchat@1`.** The detected config found 80 call sites and linked none. Rocket.Chat's calls go through its own SDK, as the held-out mobile client showed.
 
 **Defects found and fixed.**
-- **A config read as a number or a boolean.** A YAML id like `2024` or `true` would not have loaded; the config now quotes such ids.
+- **A config read as a number or a boolean** (found while writing the tests). A YAML id like `2024` or `true` would not have loaded; the config now quotes such ids.
 - **An override compose file** (a build with no context) was read as a build of the repository's root.
 - **A test compose file and an image named after a vendor** (`kong/httpbin`) were taken as parts.
 - **A workspace root that is an app** was left out.
-- **Install from git:** both causes above.
+- **Install from git**, with two causes:
+  - A `prepare` build needed devDependencies, which npm does not install for a global git install. Fixed: the command runs the sources through tsx, so no build is needed.
+  - npm 11 runs the install scripts of a git dependency in the wrong folders. Worked around: the README installs from the archive URL.
 
