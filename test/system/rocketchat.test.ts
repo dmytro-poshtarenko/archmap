@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import Database from "better-sqlite3";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { classifySite } from "../../src/classify/features.js";
 import { loadConfig } from "../../src/config/load.js";
 import { dataLayout, resolveDataDir, toolRoot } from "../../src/core/paths.js";
@@ -28,8 +28,14 @@ const enabled = process.env.ARCHMAP_SYSTEM === "1" && existsSync(dbFile);
 
 describe.runIf(enabled)("Rocket.Chat system", () => {
   const loaded = loadConfig(join(toolRoot, "configs", "rocketchat.yaml"));
-  const db = new Database(dbFile, { readonly: true });
-  const files = db.prepare("SELECT repo_id AS repo, path FROM file").all() as Array<{ repo: string; path: string }>;
+  // opened only when the suite runs: a skipped suite is still collected, and a fresh workspace has no database
+  let db: Database.Database;
+  let files: Array<{ repo: string; path: string }> = [];
+  beforeAll(() => {
+    db = new Database(dbFile, { readonly: true });
+    files = db.prepare("SELECT repo_id AS repo, path FROM file").all() as Array<{ repo: string; path: string }>;
+  });
+  afterAll(() => db?.close());
   const dirOf = (repo: string) => {
     const r = loaded.config.repos.find((x) => x.id === repo);
     return r ? locateRepo(r, layout, loaded.path).dir : "";

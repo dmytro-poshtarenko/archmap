@@ -5,6 +5,8 @@ coverage/
 *.sqlite-wal
 *.sqlite-shm
 .env
+# fixtures hold made-up values, and the infrastructure tests read them
+!fixtures/**/.env
 .DS_Store
 
 # analysis (uv)
