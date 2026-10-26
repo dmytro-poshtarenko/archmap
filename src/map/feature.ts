@@ -101,10 +101,21 @@ export function featureOf(graph: MapGraph, req: FeatureRequest): Feature {
   return { slug: slugOf(req.name), seeds: [...new Set(seeds)].sort(), unmatched, elements };
 }
 
-/** The relations a feature view draws: both ends inside its elements. */
+/**
+ * The relations a feature view draws, as LikeC4 draws them: an end inside a
+ * container shown closed counts as that container; an end inside a container
+ * shown open, with some of its elements, is drawn only if it is one of them.
+ */
 export function featureRelations(graph: MapGraph, f: Feature): MapRelation[] {
-  const covered = (id: string) => f.elements.some((e) => id === e || id.startsWith(`${e}.`));
-  return graph.relations.filter((r) => !r.tags.includes(OVERVIEW) && covered(r.source) && covered(r.target));
+  const included = new Set(f.elements);
+  const open = (id: string) => f.elements.some((e) => e.startsWith(`${id}.`));
+  const shown = (id: string): boolean => {
+    if (included.has(id)) return true;
+    const parent = id.includes(".") ? id.slice(0, id.lastIndexOf(".")) : null;
+    if (parent === null) return false;
+    return included.has(parent) ? !open(parent) : shown(parent);
+  };
+  return graph.relations.filter((r) => !r.tags.includes(OVERVIEW) && shown(r.source) && shown(r.target));
 }
 
 export function renderFeature(f: Feature, req: FeatureRequest, run: string): string {
