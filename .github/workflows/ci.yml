@@ -22,9 +22,9 @@ jobs:
   # fails if the tool repository repeats code that may not be published.
   licence:
     runs-on: ubuntu-latest
-    env:
-      ARCHMAP_DATA: ${{ runner.temp }}/data
     steps:
+      # the runner context exists in steps only, so the data folder is set here
+      - run: echo "ARCHMAP_DATA=$RUNNER_TEMP/data" >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
