@@ -2,11 +2,19 @@
   "mcpServers": {
     "archmap": {
       "command": "pnpm",
-      "args": ["-s", "archmap", "mcp"]
+      "args": [
+        "-s",
+        "archmap",
+        "mcp"
+      ]
     },
     "likec4": {
       "command": "npx",
-      "args": ["likec4", "mcp", "../data/out/rocketchat/full/likec4"]
+      "args": [
+        "likec4",
+        "mcp",
+        "../data/out/rocketchat/current"
+      ]
     }
   }
 }

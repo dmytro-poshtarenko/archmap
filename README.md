@@ -80,16 +80,61 @@ the time and cost of each step to `out/<target>/run-all-<split>.json`.
 - Every command that calls the cloud model honours `--budget-usd` (default
   from the config: $60).
 
-## Viewing the map
+## Using the map
+
+### The whole system
 
 ```bash
-npx likec4 start ../data/out/rocketchat/full.select.local/likec4
-pnpm archmap feature-view "Presence" --seeds ns:presence --depth 1 --direction in --kinds rpc
+pnpm archmap build-map   # the full method with the model's answers; LikeC4 validates it
+pnpm archmap view        # the LikeC4 viewer on http://localhost:5173
 ```
 
-Agents get two MCP servers (`.mcp.json`):
-- **`archmap mcp`**: `rebuild_map`, `list_unresolved`, `create_feature_view`;
-- **`likec4 mcp`**: read-only access to the model.
+`build-map` also points `data/out/<target>/current` at the map it built, so
+`view` and the MCP servers always open the latest one. The viewer has:
+
+| View | What it shows |
+|---|---|
+| `index` | The parts of the system and the links between them. Hover a part for what it holds and who calls it, an arrow for its routes and what decided it. |
+| `of_<part>` | One part from inside: endpoint groups, DDP methods and subscriptions, broker namespaces. The database view keeps the collections two or more parts share. |
+| `feature_<name>` | The parts one feature uses (below). |
+
+Arrows: `http` solid blue, `ddp` solid indigo, `rpc` (broker actions) dashed
+green, `event` dotted amber, `db` solid grey, `trigger` dotted red, `route` (a
+gateway's rules) dashed teal. Tags `#rules`, `#infra` and `#llm` say what
+decided a link.
+
+### One feature
+
+```bash
+pnpm archmap feature-view "User presence" --seeds ns:presence,coll:usersSessions
+```
+
+A seed is an element id (`rocketchat`), a route pattern (`/api/v1/livechat*`,
+where `*` stands for any characters, `/` included), a broker service
+(`ns:presence`), a collection (`coll:users`) or a keyword. The view follows
+the links from the seeds: `--depth` hops (1 to 4), `--direction in|out|both`,
+`--kinds` to keep some kinds of links. Names in any language work; the view id
+is transliterated.
+
+### From Claude Code
+
+Claude Code started in this directory picks up `.mcp.json`, which registers
+two servers. To use them from any project:
+
+```bash
+claude mcp add archmap -- pnpm -C /path/to/tool -s archmap mcp
+claude mcp add likec4 -- npx -y likec4@1.59.4 mcp /path/to/data/out/rocketchat/current
+```
+
+| Server | Tools |
+|---|---|
+| `archmap` | `create_feature_view` builds a feature view and returns its parts, the links between them with their routes, and the viewer address. `list_unresolved` lists what the method left open, as metadata only. `rebuild_map` reruns classification, matching and the model's answers (recorded ones unless `llm: live`) and rebuilds the map. |
+| `likec4` | Read-only: elements, relationships, paths between parts, views. |
+
+Questions to try:
+- «Which parts of Rocket.Chat take part in user presence? Make a feature view.»
+- «Which services write the `users` collection?»
+- «What did the method leave unresolved in the desktop client, and why?»
 
 ## Reference labelling
 

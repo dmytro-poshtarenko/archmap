@@ -1,6 +1,6 @@
-import picomatch from "picomatch";
+import { sha256Hex } from "../core/hash.js";
 import { q } from "./dsl.js";
-import type { MapGraph, RelationKind } from "./graph.js";
+import type { MapGraph, MapRelation, RelationKind } from "./graph.js";
 
 export interface FeatureRequest {
   name: string;
@@ -24,13 +24,18 @@ export interface Feature {
   elements: string[];
 }
 
+/** Cyrillic letters in Latin (the Ukrainian national transliteration, plus the Russian letters it lacks). */
+const LATIN: Record<string, string> = {
+  а: "a", б: "b", в: "v", г: "h", ґ: "g", д: "d", е: "e", є: "ie", ж: "zh", з: "z", и: "y", і: "i", ї: "i", й: "i",
+  к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r", с: "s", т: "t", у: "u", ф: "f", х: "kh", ц: "ts", ч: "ch",
+  ш: "sh", щ: "shch", ь: "", ю: "iu", я: "ia", ё: "e", ы: "y", э: "e", ъ: "",
+};
+
+/** The view id of a feature name: Latin letters, digits and `_`; a name with none of them gets a short hash. */
 export function slugOf(name: string): string {
-  return (
-    name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "_")
-      .replace(/^_+|_+$/g, "") || "feature"
-  );
+  const latin = [...name.toLowerCase()].map((ch) => LATIN[ch] ?? ch).join("");
+  const slug = latin.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  return slug || `feature_${sha256Hex(name).slice(0, 8)}`;
 }
 
 /** The elements a seed names. */
@@ -40,8 +45,9 @@ export function resolveSeed(graph: MapGraph, seed: string): string[] {
   if (seed.startsWith("ns:")) return graph.elements.filter((e) => e.kind === "endpointGroup" && e.title === `${seed.slice(3)}.*`).map((e) => e.id);
   if (seed.startsWith("coll:")) return graph.elements.filter((e) => e.kind === "collection" && e.title === seed.slice(5)).map((e) => e.id);
   if (seed.startsWith("/")) {
-    const match = picomatch(seed);
-    return [...new Set(graph.relations.filter((r) => r.keys.some((k) => k.startsWith("http:") && match(k.slice(k.indexOf(":", 5) + 1, k.lastIndexOf("@"))))).map((r) => r.target))];
+    // `*` stands for any characters, `/` included: /api/v1/livechat* covers /api/v1/livechat/visitor
+    const pattern = new RegExp(`^${seed.split("*").map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`);
+    return [...new Set(graph.relations.filter((r) => r.keys.some((k) => k.startsWith("http:") && pattern.test(k.slice(k.indexOf(":", 5) + 1, k.lastIndexOf("@"))))).map((r) => r.target))];
   }
   const word = seed.toLowerCase();
   const byTitle = graph.elements.filter((e) => e.id.toLowerCase().includes(word) || e.title.toLowerCase().includes(word)).map((e) => e.id);
@@ -90,6 +96,18 @@ export function featureOf(graph: MapGraph, req: FeatureRequest): Feature {
   return { slug: slugOf(req.name), seeds: [...new Set(seeds)].sort(), unmatched, elements };
 }
 
-export function renderFeature(f: Feature, name: string): string {
-  return ["views {", `  view feature_${f.slug} {`, `    title ${q(name)}`, `    include ${f.elements.join(", ")}`, "  }", "}", ""].join("\n");
+/** The relations a feature view draws: both ends inside its elements. */
+export function featureRelations(graph: MapGraph, f: Feature): MapRelation[] {
+  const covered = (id: string) => f.elements.some((e) => id === e || id.startsWith(`${e}.`));
+  return graph.relations.filter((r) => covered(r.source) && covered(r.target));
+}
+
+export function renderFeature(f: Feature, req: FeatureRequest, run: string): string {
+  const how = [
+    `Seeds: ${req.seeds.join(", ")}${f.unmatched.length > 0 ? ` (no match for ${f.unmatched.join(", ")})` : ""}`,
+    `${req.depth} hop${req.depth === 1 ? "" : "s"} ${req.direction === "in" ? "towards the seeds" : req.direction === "out" ? "from the seeds" : "both ways"}`,
+    `kinds: ${req.kinds && req.kinds.length > 0 ? req.kinds.join(", ") : "all"}`,
+    `run ${run}`,
+  ].join("; ");
+  return ["views {", `  view feature_${f.slug} {`, `    title ${q(req.name)}`, `    description ${q(`${how}.`)}`, `    include ${f.elements.join(", ")}`, "  }", "}", ""].join("\n");
 }

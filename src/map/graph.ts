@@ -3,8 +3,17 @@ import { parseTargetKey } from "../core/keys.js";
 import type { CallSite } from "../core/types.js";
 import type { StoredLink } from "../match/run.js";
 
-/** Kinds of relations on the map: the interaction types, with broker actions as `rpc` and events apart. */
-export type RelationKind = "http" | "ddp" | "rpc" | "event" | "db" | "trigger";
+/** Kinds of relations on the map: the interaction types, with broker actions as `rpc` and events apart, and a gateway's routing rules as `route`. */
+export type RelationKind = "http" | "ddp" | "rpc" | "event" | "db" | "trigger" | "route";
+
+/** Where a gateway sends requests: its routing rules grouped by the part they reach. */
+export interface GatewayRoute {
+  gateway: string;
+  target: string;
+  paths: string[];
+  /** Where the rules are written, e.g. `main:docker-compose-ci.yml:2`. */
+  sources: string[];
+}
 
 export interface MapElement {
   /** LikeC4 name, unique among its siblings. */
@@ -13,6 +22,8 @@ export interface MapElement {
   id: string;
   kind: "client" | "service" | "gateway" | "bus" | "database" | "collection" | "scheduler" | "external" | "endpointGroup";
   title: string;
+  /** What the element holds and which parts call it, shown when the element is hovered. */
+  description?: string;
   parent: string | null;
   tags: string[];
   metadata: Record<string, string>;
@@ -23,6 +34,8 @@ export interface MapRelation {
   target: string;
   kind: RelationKind;
   title: string;
+  /** Every route, method or name behind the relation, up to a limit. */
+  description?: string;
   tags: string[];
   metadata: Record<string, string>;
   /** Target keys behind the relation. */
@@ -55,9 +68,10 @@ export function routeGroup(template: string): string {
  * (source part, target element, kind). An ambiguous site draws a relation to
  * each part still possible, tagged `#ambiguous`; an unresolved site draws
  * nothing. No code text reaches the map: titles name routes and counts, and
- * metadata holds cases, one call site and the run.
+ * metadata holds cases, one call site and the run. A gateway's routing rules
+ * draw a relation from the gateway to each part it sends requests to.
  */
-export function buildGraph(config: TargetConfig, run: string, sites: CallSite[], links: StoredLink[]): MapGraph {
+export function buildGraph(config: TargetConfig, run: string, sites: CallSite[], links: StoredLink[], routing: GatewayRoute[] = []): MapGraph {
   const elements = new Map<string, MapElement>();
   const put = (e: Omit<MapElement, "id" | "tags" | "metadata"> & { tags?: string[]; metadata?: Record<string, string> }) => {
     const id = e.parent ? `${e.parent}.${e.name}` : e.name;
@@ -156,13 +170,111 @@ export function buildGraph(config: TargetConfig, run: string, sites: CallSite[],
       target: r.target,
       kind: r.kind,
       title: names.length <= 2 ? names.join(", ") : `${names.slice(0, 2).join(", ")} (+${names.length - 2})`,
+      description: `${listed(names, 12)}. Decided by ${[...r.provenance].sort().join(", ") || "–"}; ${r.sites.length} call site${r.sites.length === 1 ? "" : "s"}.`,
       tags,
       metadata: { case: [...r.cases].sort((x, y) => x - y).join(","), callsite: r.sites[0] ?? "", sites: String(r.sites.length), run },
       keys: r.keys.sort(),
       sites: r.sites.sort(),
     };
   });
+  for (const g of routing) {
+    const [source, target] = [ident(g.gateway), ident(g.target)];
+    if (!elements.has(source) || !elements.has(target) || source === target) continue;
+    const paths = [...g.paths].sort();
+    out.push({
+      source,
+      target,
+      kind: "route",
+      title: paths.length <= 2 ? paths.join(", ") : `${paths.slice(0, 2).join(", ")} (+${paths.length - 2})`,
+      description: `Requests to ${listed(paths, 12)} go to ${g.target}. Rules in ${[...new Set(g.sources)].sort().join(", ")}.`,
+      tags: ["infra"],
+      metadata: { run },
+      keys: [],
+      sites: [],
+    });
+  }
   out.sort((a, b) => (a.source + a.target + a.kind < b.source + b.target + b.kind ? -1 : 1));
   const list = [...elements.values()].sort((a, b) => (a.id < b.id ? -1 : 1));
+  describeElements(list, out);
   return { elements: list, relations: out };
+}
+
+/** Names joined with commas, the rest counted: `a, b (+3 more)`. */
+function listed(names: string[], limit: number): string {
+  return names.length <= limit ? names.join(", ") : `${names.slice(0, limit).join(", ")} (+${names.length - limit} more)`;
+}
+
+const KIND_LABEL: Record<MapElement["kind"], string> = {
+  client: "Client",
+  service: "Service",
+  gateway: "Gateway",
+  bus: "Message bus",
+  database: "Database",
+  collection: "Collection",
+  scheduler: "Scheduled jobs",
+  external: "External system",
+  endpointGroup: "Endpoint group",
+};
+
+function count(n: number, one: string, many = `${one}s`): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/**
+ * Descriptions a developer sees when hovering an element: for a part, what it
+ * holds and which parts call it and which it calls; for an element inside a
+ * part, the routes, methods or names the system uses there.
+ */
+function describeElements(elements: MapElement[], relations: MapRelation[]): void {
+  const top = (id: string) => id.split(".")[0] as string;
+  for (const e of elements) {
+    if (e.parent === null) {
+      const inside = elements.filter((c) => c.parent === e.id);
+      const held = [
+        ...(inside.some((c) => c.name.startsWith("ep_")) ? [count(inside.filter((c) => c.name.startsWith("ep_")).length, "REST endpoint group")] : []),
+        ...inside.filter((c) => c.name.startsWith("ddp_")).map((c) => c.title),
+        ...(inside.some((c) => c.name.startsWith("ns_")) ? [count(inside.filter((c) => c.name.startsWith("ns_")).length, "broker namespace")] : []),
+        ...(inside.some((c) => c.kind === "collection")
+          ? [`${count(inside.filter((c) => c.kind === "collection").length, "collection")}, ${inside.filter((c) => c.kind === "collection" && c.tags.includes("shared")).length} shared`]
+          : []),
+      ];
+      const incoming = relations.filter((r) => top(r.target) === e.id && top(r.source) !== e.id);
+      const outgoing = relations.filter((r) => top(r.source) === e.id && top(r.target) !== e.id);
+      const parts = (rs: MapRelation[], end: "source" | "target") => [...new Set(rs.map((r) => top(r[end])))].sort();
+      // events go publisher → bus → subscriber, and jobs scheduler → the part that runs them
+      const said: Array<[string, string[]]> =
+        e.kind === "bus"
+          ? [
+              ["Events from", parts(incoming, "source")],
+              ["Delivered to", parts(outgoing, "target")],
+            ]
+          : e.kind === "scheduler"
+            ? [["Runs jobs in", parts(outgoing, "target")]]
+            : e.kind === "gateway"
+              ? outgoing.filter((r) => r.kind === "route").map((r): [string, string[]] => [`Routes ${r.title} to`, [top(r.target)]])
+              : [
+                ["Used by", parts(incoming.filter((r) => r.kind !== "event" && r.kind !== "trigger" && r.kind !== "route"), "source")],
+                ["Receives requests through", parts(incoming.filter((r) => r.kind === "route"), "source")],
+                ["Uses", parts(outgoing.filter((r) => r.kind !== "event"), "target")],
+                ["Publishes events to", parts(outgoing.filter((r) => r.kind === "event"), "target")],
+                ["Receives events from", parts(incoming.filter((r) => r.kind === "event"), "source")],
+                ["Runs scheduled jobs from", parts(incoming.filter((r) => r.kind === "trigger"), "source")],
+              ];
+      e.description = [
+        `${KIND_LABEL[e.kind]}${held.length > 0 ? ` with ${held.join(", ")}` : ""}.`,
+        ...said.filter(([, names]) => names.length > 0).map(([verb, names]) => `${verb} ${listed(names, 6)}.`),
+      ].join(" ");
+    } else {
+      const names = [...new Set(relations.filter((r) => r.target === e.id || r.source === e.id).flatMap((r) => r.keys.map(displayKey)))].sort();
+      const users = [...new Set(relations.filter((r) => r.target === e.id).map((r) => top(r.source)))].sort();
+      e.description = [`${KIND_LABEL[e.kind]}: ${listed(names, 12)}.`, ...(users.length > 0 ? [`Used by ${listed(users, 6)}.`] : [])].join(" ");
+    }
+  }
+}
+
+/** A target key as a developer reads it: `GET /api/v1/rooms.info`, `sendMessage`, `users`. */
+function displayKey(key: string): string {
+  const k = parseTargetKey(key);
+  if ("error" in k) return key;
+  return k.kind === "http" ? `${k.method} ${k.name}` : k.name;
 }

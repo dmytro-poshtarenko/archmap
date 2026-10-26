@@ -7,8 +7,9 @@ import type { DataLayout } from "../core/paths.js";
 import { LlmClient } from "../llm/client.js";
 import { providerOf } from "../llm/providers/index.js";
 import { reader, runResolve } from "../llm/run.js";
+import { featureRelations } from "../map/feature.js";
 import type { RelationKind } from "../map/graph.js";
-import { addFeatureView, buildMap, graphOf, mapDir } from "../map/run.js";
+import { addFeatureView, buildMap, currentMapDir, currentMapRun, defaultMapRun, graphOf, mapDir } from "../map/run.js";
 import { runMatch } from "../match/run.js";
 import type { Db } from "../store/db.js";
 
@@ -20,6 +21,9 @@ export interface McpContext {
 
 const json = (value: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }] });
 const failure = (error: unknown) => ({ content: [{ type: "text" as const, text: error instanceof Error ? error.message : String(error) }], isError: true });
+
+/** Where a developer sees a view: the LikeC4 viewer that `archmap view` starts. */
+const VIEWER = "http://localhost:5173/view";
 
 /** The run a variant's map is drawn from: the model's run when one exists. */
 function drawnRun(db: Db, variant: string): string {
@@ -42,11 +46,11 @@ export function createServer(ctx: McpContext): McpServer {
     {
       title: "Rebuild the map",
       description:
-        "Classifies the call sites, matches them for a variant of the method, lets the language model resolve what the rules leave open (from recorded answers unless llm is 'live'), and writes and validates the LikeC4 model.",
+        "Classifies the call sites, matches them for a variant of the method, lets the language model resolve what the rules leave open (from recorded answers unless llm is 'live'), and writes and validates the LikeC4 model. The model defaults to the cloud model of the config (its channel decides API or Claude Code).",
       inputSchema: {
         variant: z.enum(["full", "no-llm", "no-infra", "no-rules"]).default("full"),
         llm: z.enum(["cache-only", "live"]).default("cache-only"),
-        model: z.enum(["local", "cloud", "cloud-cli"]).default("local"),
+        model: z.enum(["local", "cloud", "cloud-cli"]).default("cloud"),
       },
     },
     async ({ variant, llm, model }) => {
@@ -67,8 +71,8 @@ export function createServer(ctx: McpContext): McpServer {
         }
         const run = drawnRun(db, matched.run);
         const dir = mapDir(ctx.layout.root, config.name, run);
-        const { graph, diagnostics } = await buildMap(db, config, run, dir);
-        return json({ run, dir, cases: classified.byCase, status: matched.byStatus, resolved, elements: graph.elements.length, relations: graph.relations.length, diagnostics });
+        const { graph, diagnostics } = await buildMap(db, config, run, dir, currentMapDir(ctx.layout.root, config.name));
+        return json({ run, dir, open: `${VIEWER}/index/`, cases: classified.byCase, status: matched.byStatus, resolved, elements: graph.elements.length, relations: graph.relations.length, diagnostics });
       } catch (error) {
         return failure(error);
       } finally {
@@ -135,12 +139,12 @@ export function createServer(ctx: McpContext): McpServer {
     {
       title: "Create a feature view",
       description:
-        "Adds a LikeC4 view of the parts a feature uses: from seeds (element ids, route patterns like /api/v1/rooms.*, ns:<broker service>, coll:<collection>, or keywords), breadth first along relations of the given kinds and direction, and validates the model.",
+        "Adds a LikeC4 view of the parts a feature uses: from seeds (element ids, route patterns like /api/v1/rooms.*, ns:<broker service>, coll:<collection>, or keywords), breadth first along relations of the given kinds and direction, and validates the model. Returns the parts, the links between them with their routes, and where to open the view.",
       inputSchema: {
         name: z.string().min(1),
         seeds: z.array(z.string().min(1)).min(1),
         depth: z.number().int().min(1).max(4).default(1),
-        kinds: z.array(z.enum(["http", "ddp", "rpc", "event", "db", "trigger"])).optional(),
+        kinds: z.array(z.enum(["http", "ddp", "rpc", "event", "db", "trigger", "route"])).optional(),
         direction: z.enum(["in", "out", "both"]).default("both"),
         run: z.string().optional(),
       },
@@ -148,10 +152,21 @@ export function createServer(ctx: McpContext): McpServer {
     async ({ name, seeds, depth, kinds, direction, run }) => {
       const db = ctx.openDb();
       try {
-        const drawn = run ?? drawnRun(db, "full");
+        const drawn = run ?? currentMapRun(ctx.layout.root, config.name) ?? defaultMapRun(db);
         const dir = mapDir(ctx.layout.root, config.name, drawn);
-        const { feature, diagnostics } = await addFeatureView(graphOf(db, config, drawn), dir, { name, seeds, depth, kinds: kinds as RelationKind[] | undefined, direction });
-        return json({ view: `feature_${feature.slug}`, file: `${dir}/feature_${feature.slug}.c4`, elements: feature.elements, seeds: feature.seeds, unmatched: feature.unmatched, diagnostics });
+        const graph = graphOf(db, config, drawn);
+        const { feature, diagnostics } = await addFeatureView(graph, dir, { name, seeds, depth, kinds: kinds as RelationKind[] | undefined, direction }, drawn);
+        const links = featureRelations(graph, feature).map((r) => ({ from: r.source, to: r.target, kind: r.kind, what: r.description ?? r.title, tags: r.tags, sites: r.sites.length }));
+        return json({
+          view: `feature_${feature.slug}`,
+          open: `${VIEWER}/feature_${feature.slug}/ (start the viewer with \`archmap view\`)`,
+          run: drawn,
+          elements: feature.elements,
+          links,
+          seeds: feature.seeds,
+          unmatched: feature.unmatched,
+          diagnostics,
+        });
       } catch (error) {
         return failure(error);
       } finally {

@@ -34,3 +34,22 @@ The expected parts were written down before the views were generated.
   requires, and none of the excluded clients.
 - **S4.** ddp-streamer also checks permissions through the authorization
   service.
+
+## Result on the final map (run `full.select.cloud`, 2026-10-26)
+
+The final map is the frozen method with the cloud model's answers:
+- rules, infrastructure, and the language model resolving the open sites in select mode;
+- the model resolved the open sites of the whole system, not only of the labelled sample: 32 requests, 10 sites linked.
+
+The scenarios went through the MCP server, the way an agent uses it:
+1. `rebuild_map` rebuilt the run from the recorded answers. All 32 answers came from the cache; there were no new requests.
+2. `create_feature_view` ran once for each scenario.
+
+| # | Parts in the view | Links | Verdict |
+|---|---|---|---|
+| S1 | ddp-streamer-service, presence-service, rocketchat | 8 | Passed: exactly the expected parts |
+| S2 | livechat, rocketchat | 2 | Passed: exactly the expected parts |
+| S3 | account-service, authorization-service, ddp-streamer-service, mongo (the seed's part), omnichannel-transcript-service, presence-service, queue-worker-service, rocketchat | 38 | Passed |
+| S4 | authorization-service, ddp-streamer-service, rocketchat | 8 | Passed |
+
+The parts are the same as on 2026-10-15. The model's answers add links inside these parts, not new parts.

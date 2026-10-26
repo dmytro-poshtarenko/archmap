@@ -83,8 +83,9 @@ describe.runIf(enabled)("Rocket.Chat system", () => {
     expect(all[named("team.create", ["rocketchat"])]).toMatchObject({ status: "none", reason: "intra" });
     expect(all[named("users")]?.target).toBe("coll:-:users@mongo");
     expect(all[named("/api/v1/rooms.info", ["web-client"])]?.target).toBe("http:GET:/api/v1/rooms.info@rocketchat");
-    // DDP declarations have no rules: without the language model no DDP site links
-    expect(sites.filter((s, i) => s.type === "ddp" && all[i]?.status === "linked")).toHaveLength(0);
+    // DDP declarations have no rules: without the language model's routes no DDP site links
+    const withoutModel = sites.map((s) => resolver.resolve(s, { ...ALL_SOURCES, llmRoutes: false }));
+    expect(sites.filter((s, i) => s.type === "ddp" && withoutModel[i]?.status === "linked")).toHaveLength(0);
   }, 60_000);
 
   it("passes the acceptance scenarios of the feature views (docs/m9-acceptance.md)", () => {
