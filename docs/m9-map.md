@@ -29,7 +29,7 @@ LikeC4 1.59.4 (`LikeC4.fromWorkspace(...).getErrors()`, the same check as
 - **Collections inside the database** (`mongo.users`). A collection is tagged `#shared` when two or more containers use it with code of their own; shared-code relations do not count.
 - **Scheduled jobs** are a `jobs` element inside the container that registers them. The jobs run in that container's process, so they are not a container of their own.
 - **Summary.** Every element has a `summary`, one line drawn on it: what a part holds (`73 REST groups, 15 DDP methods, 1 DDP subscription, 12 broker namespaces, 18 scheduled jobs`), what a client calls, how many collections a database has. The longer `description` is in its details.
-- **No links.** A client or service with no relation and nothing inside is tagged `#noLinks`. It is drawn faded with a dashed border, and its summary counts its call sites (`No links found: 2 call sites, 2 unresolved`).
+- **No links.** A client or service with no relation and nothing inside is tagged `#noLinks`. It is drawn light grey, and its summary counts its call sites (`No links found: 2 call sites, 2 unresolved`).
 
 ### Which containers run a call
 
@@ -90,7 +90,7 @@ Relations are aggregated by (source part, target element, kind). The line says w
 
 ### Notation
 
-The specification defines its own colours, one per element type, and a `notation` text for every element and relationship kind. The viewer's legend lists them. Every view's description starts with what the view shows and ends with a Markdown key to the arrows, line styles and faded boxes.
+The specification defines its own colours, one per element type, and a `notation` text for every element and relationship kind. The viewer's legend lists the element kinds; LikeC4 1.59 keeps its relationship tab disabled. So every view's description starts with what the view shows and ends with a Markdown key to the arrows, line styles and grey boxes.
 
 ### Views
 
@@ -134,6 +134,7 @@ inside it.
   - The title gets the C4 level: C3 when the view includes components inside a container, C2 otherwise. A level the caller wrote is replaced.
   - The view id comes from the words before the parenthesis (`feature_user_presence`). A name with no Latin letters or digits gets a short hash.
 - **Description.** The view's description records the seeds, depth, direction, kinds and run.
+- **Merged arrows.** When a container is shown closed, LikeC4 draws all calls into it as one arrow and labels it `[...]` if their titles differ. The view gives such an arrow a title and protocol in the C2 style (`include rocketchat -> authorization-service with { title 'RPC: abac.*, authorization.* (26 actions)' }`). An arrow into a container shown open keeps LikeC4's label, because the rule would also draw the calls to its hidden elements. No view of the final map has a `[...]` label.
 - **Removing.** `archmap remove-view <view id or name>` or the MCP tool `delete_feature_view` removes a feature view.
 
 **Acceptance.** Four scenarios on Rocket.Chat were fixed before the run

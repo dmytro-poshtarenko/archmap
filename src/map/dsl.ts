@@ -30,6 +30,7 @@ const SPECIFICATION = `specification {
   color c4-async #D97706
   color c4-data #475569
   color c4-shared #9CA3AF
+  color c4-nolinks #CBD5E1
 
   element system {
     notation 'Software system'
@@ -160,7 +161,7 @@ export const KEY = [
   "- Dashed amber arrow: asynchronous (a broker event, a DDP subscription).",
   "- Grey arrow: database access. Dotted grey: only shared code links the two, so which container makes the call is not known.",
   "- Under each label, in brackets: the protocol, and the gateway or container the traffic passes.",
-  "- Faded box with a dashed border: the method found no links for that container.",
+  "- Light grey box: the method found no links for that container.",
   "- Open an element or an arrow for the names behind it.",
 ].join("\n");
 
@@ -176,7 +177,8 @@ const MOBILE = /react native|flutter|android|ios|swiftui|kotlin multiplatform/i;
 function element(e: MapElement, all: MapElement[], indent: string): string[] {
   const own = all.filter((x) => x.parent === e.id);
   const style = [
-    ...(e.tags.includes(NO_LINKS) ? ["opacity 35%", "border dashed"] : []),
+    // opacity and border style apply only to a box drawn open, with elements inside; a colour shows on any box
+    ...(e.tags.includes(NO_LINKS) ? ["color c4-nolinks"] : []),
     ...(e.technology && MOBILE.test(e.technology) ? ["shape mobile"] : []),
   ];
   const body = [

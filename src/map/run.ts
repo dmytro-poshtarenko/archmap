@@ -290,7 +290,7 @@ function pointCurrent(link: string, dir: string): void {
 export async function addFeatureView(graph: MapGraph, dir: string, req: FeatureRequest, run: string): Promise<{ feature: Feature; diagnostics: Diagnostic[] }> {
   const feature = featureOf(graph, req);
   if (feature.elements.length === 0) throw new Error(`no element matches the seeds ${req.seeds.join(", ")}`);
-  writeFileSync(join(dir, `feature_${feature.slug}.c4`), renderFeature(feature, req, run));
+  writeFileSync(join(dir, `feature_${feature.slug}.c4`), renderFeature(graph, feature, req, run));
   return { feature, diagnostics: await validateWorkspace(dir) };
 }
 

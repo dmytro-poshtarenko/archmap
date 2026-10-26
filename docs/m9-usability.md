@@ -39,7 +39,7 @@ What came of its findings:
 | DDP drawn to `rocketchat` although the gateway sends the WebSocket to `ddp-streamer-service`. | On C2, DDP goes to the container that terminates the gateway's WebSocket. On the other views it is labelled `through` that container. |
 | Labels said "how many", not "what". Names were ranked alphabetically, so 10 labels began with `DELETE`. | Names are ranked by call sites, and the prefix the target box shows is cut. C2 labels name the top groups (`REST: livechat, users, rooms +70 groups (474 routes)`). Arrows to collections are untitled. Units are the same across levels. |
 | No key, and colours that collided (client = gateway, database = external systems). | Own colours, one per type, and a `notation` on every kind for the viewer's legend. A Markdown key is in every view's description. Line style tells request, asynchronous and data apart. |
-| Boxes said nothing about what they are or are built with, and `mobile` stood alone with no explanation. | A `technology` comes from the images and package.json, and a one-line `summary` sits on every element. A container with no links is drawn faded with a dashed border, and its summary counts its call sites. |
+| Boxes said nothing about what they are or are built with, and `mobile` stood alone with no explanation. | A `technology` comes from the images and package.json, and a one-line `summary` sits on every element. A container with no links is drawn light grey, and its summary counts its call sites. |
 
 Still open, from the same review:
 - **The two giant C3 views.** `of_rocketchat` is 96 nodes in one column, and `of_mongo` is dense.

@@ -1,6 +1,6 @@
 import { sha256Hex } from "../core/hash.js";
 import { q } from "./dsl.js";
-import { GATEWAY, type MapGraph, type MapRelation, OVERVIEW, type RelationKind } from "./graph.js";
+import { GATEWAY, type MapGraph, type MapRelation, mergedArrow, OVERVIEW, type RelationKind } from "./graph.js";
 
 export interface FeatureRequest {
   name: string;
@@ -103,23 +103,52 @@ export function featureOf(graph: MapGraph, req: FeatureRequest): Feature {
 }
 
 /**
- * The relations a feature view draws, as LikeC4 draws them: an end inside a
- * container shown closed counts as that container; an end inside a container
- * shown open, with some of its elements, is drawn only if it is one of them.
+ * Where a feature view draws an element, as LikeC4 draws it: an element
+ * inside a container shown closed is drawn as that container; one inside a
+ * container shown open, with some of its elements, only if it is one of them.
  */
-export function featureRelations(graph: MapGraph, f: Feature): MapRelation[] {
+function drawnAs(f: Feature): { at: (id: string) => string | null; open: (id: string) => boolean } {
   const included = new Set(f.elements);
   const open = (id: string) => f.elements.some((e) => e.startsWith(`${id}.`));
-  const shown = (id: string): boolean => {
-    if (included.has(id)) return true;
+  const at = (id: string): string | null => {
+    if (included.has(id)) return id;
     const parent = id.includes(".") ? id.slice(0, id.lastIndexOf(".")) : null;
-    if (parent === null) return false;
-    return included.has(parent) ? !open(parent) : shown(parent);
+    if (parent === null) return null;
+    if (included.has(parent)) return open(parent) ? null : parent;
+    return at(parent);
   };
-  return graph.relations.filter((r) => !r.tags.includes(OVERVIEW) && !r.tags.includes(GATEWAY) && shown(r.source) && shown(r.target));
+  return { at, open };
 }
 
-export function renderFeature(f: Feature, req: FeatureRequest, run: string): string {
+/** The relations a feature view draws. */
+export function featureRelations(graph: MapGraph, f: Feature): MapRelation[] {
+  const { at } = drawnAs(f);
+  return graph.relations.filter((r) => !r.tags.includes(OVERVIEW) && !r.tags.includes(GATEWAY) && at(r.source) !== null && at(r.target) !== null);
+}
+
+/**
+ * The arrows of a feature view that stand for several relations with
+ * different titles, which LikeC4 would label `[...]`, with the title and
+ * protocol they get instead. An arrow into a container drawn open is left as
+ * it is: the view rule for it would also draw the calls to its hidden elements.
+ */
+export function mergedArrows(graph: MapGraph, f: Feature): Array<{ source: string; target: string; title: string; technology: string }> {
+  const { at, open } = drawnAs(f);
+  const pairs = new Map<string, MapRelation[]>();
+  for (const r of featureRelations(graph, f)) {
+    const key = `${at(r.source)}|${at(r.target)}`;
+    pairs.set(key, [...(pairs.get(key) ?? []), r]);
+  }
+  const external = new Set(graph.elements.filter((e) => e.kind === "external").map((e) => e.id));
+  return [...pairs]
+    .filter(([key, rs]) => new Set(rs.map((r) => r.title)).size > 1 && !open(key.split("|")[1] as string))
+    .map(([key, rs]) => {
+      const [source, target] = key.split("|") as [string, string];
+      return { source, target, ...mergedArrow(rs, external.has(target)) };
+    });
+}
+
+export function renderFeature(graph: MapGraph, f: Feature, req: FeatureRequest, run: string): string {
   const how = [
     `Seeds: ${req.seeds.join(", ")}${f.unmatched.length > 0 ? ` (no match for ${f.unmatched.join(", ")})` : ""}`,
     `${req.depth} hop${req.depth === 1 ? "" : "s"} ${req.direction === "in" ? "towards the seeds" : req.direction === "out" ? "from the seeds" : "both ways"}`,
@@ -134,6 +163,7 @@ export function renderFeature(f: Feature, req: FeatureRequest, run: string): str
     `    title ${q(`C${level}: ${levelFree(req.name)}`)}`,
     `    description ${q(`${how}.`)}`,
     `    include ${f.elements.join(", ")}`,
+    ...mergedArrows(graph, f).flatMap((a) => [`    include ${a.source} -> ${a.target} with {`, `      title ${q(a.title)}`, `      technology ${q(a.technology)}`, "    }"]),
     `    exclude * -> * where tag is #${OVERVIEW}`,
     `    exclude * -> * where tag is #${GATEWAY}`,
     "  }",

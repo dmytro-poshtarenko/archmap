@@ -9,7 +9,7 @@ import { dataLayout, toolRoot } from "../../src/core/paths.js";
 import { programOf, runExtraction } from "../../src/extract/run.js";
 import { extractInfra, writeInfra } from "../../src/infra/index.js";
 import { renderModel } from "../../src/map/dsl.js";
-import { featureOf, slugOf } from "../../src/map/feature.js";
+import { featureOf, mergedArrows, renderFeature, slugOf } from "../../src/map/feature.js";
 import { buildGraph, type MapElement, type MapGraph } from "../../src/map/graph.js";
 import { reader } from "../../src/llm/run.js";
 import { addFeatureView, buildMap, MODEL_FILE } from "../../src/map/run.js";
@@ -208,10 +208,23 @@ describe("the graph's rules", () => {
     ]);
   });
 
+  it("names an arrow of a feature view that stands for several calls, where LikeC4 would write [...]", () => {
+    const g = buildGraph(config, "run", [site("p", ["a"]), site("q", ["a"])], [link("p", "action:-:x.do@b"), link("q", "action:-:y.go@b")]);
+    const req = { name: "F", seeds: ["a", "b"], depth: 1 };
+    const f = featureOf(g, req);
+    expect(f.elements).toEqual(["a", "b"]);
+    expect(mergedArrows(g, f)).toEqual([{ source: "a", target: "b", title: "RPC: x.*, y.* (2 actions)", technology: "RPC" }]);
+    expect(renderFeature(g, f, req, "run")).toContain("include a -> b with {\n      title 'RPC: x.*, y.* (2 actions)'");
+    // with b drawn open, each call has its own arrow
+    expect(mergedArrows(g, featureOf(g, { ...req, seeds: ["a"] }))).toEqual([]);
+  });
+
   it("says on a container that the method found no links for it", () => {
     const g = buildGraph(config, "run", [site("x", ["mob"], "request", "http"), site("y", ["a"])], [{ ...link("x", "NONE"), status: "unresolved", target: null }, link("y", "action:-:b.do@b")]);
     expect(g.elements.find((e) => e.id === "mob")).toMatchObject({ tags: ["noLinks"], summary: "No links found: 1 call site, 1 unresolved" });
     expect(g.elements.find((e) => e.id === "a")?.tags).not.toContain("noLinks");
+    // a leaf box shows a colour, not opacity or a border style
+    expect(renderModel(g, "Shop", "")).toMatch(/mob = client 'mob' \{[^}]*style \{\s*color c4-nolinks\s*\}/);
   });
 });
 

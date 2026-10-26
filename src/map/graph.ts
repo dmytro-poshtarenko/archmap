@@ -611,8 +611,8 @@ function heldBy(inside: MapElement[]): string[] {
   ];
 }
 
-/** Order of the kinds when one arrow stands for several: request and response first, then asynchronous, then data. */
-const PRIORITY: RelationKind[] = ["http", "ddp", "rpc", "stream", "event", "db"];
+/** Order of the kinds when one arrow stands for several: request and response first, then asynchronous, then data, then routing. */
+const PRIORITY: RelationKind[] = ["http", "ddp", "rpc", "stream", "event", "db", "route"];
 
 /**
  * The relations of the C2 views: one per direction between two containers,
@@ -626,7 +626,6 @@ const PRIORITY: RelationKind[] = ["http", "ddp", "rpc", "stream", "event", "db"]
 function overviewRelations(relations: MapRelation[], elements: Map<string, MapElement>, websocketOf: Map<string, string>, busProtocol: string | undefined, run: string): MapRelation[] {
   const top = (id: string) => id.split(".")[0] as string;
   const kindOf = (id: string) => elements.get(top(id))?.kind;
-  type Part = { kind: RelationKind; names: Map<string, Set<string>>; protocol: string; via: string[]; provenance: string[] };
   const pairs = new Map<string, Part[]>();
   const add = (a: string, b: string, part: Part) => {
     if (a !== b) pairs.set(`${a}|${b}`, [...(pairs.get(`${a}|${b}`) ?? []), part]);
@@ -649,51 +648,87 @@ function overviewRelations(relations: MapRelation[], elements: Map<string, MapEl
       continue;
     }
     if (kindOf(a) === "bus" || kindOf(b) === "bus") continue;
-    const names = new Map(r.keys.map((k) => [displayKey(k), new Set(r.sites)] as [string, Set<string>]));
     // DDP reaches the container that terminates the gateway's WebSocket, which forwards it
     const through = r.metadata.through ? ident(r.metadata.through) : undefined;
-    add(a, through && through !== b ? through : b, {
-      kind: r.kind,
-      names,
-      protocol: (r.technology ?? "").replace(/ (via|through) .*$/, ""),
-      via: (r.metadata.via ?? "").split(",").filter(Boolean),
-      provenance: provenanceOf(r),
-    });
+    add(a, through && through !== b ? through : b, { ...partOf(r), through: [], provenance: provenanceOf(r) });
   }
   for (const [key, publishers] of published) {
     for (const [subscriber, subSites] of subscribed.get(key) ?? []) {
       for (const [publisher, pubSites] of publishers) {
-        add(publisher, subscriber, { kind: "event", names: new Map([[displayKey(key), new Set([...pubSites, ...subSites])]]), protocol: `${busProtocol ?? "broker"} (events)`, via: [], provenance: [] });
+        add(publisher, subscriber, { kind: "event", names: new Map([[displayKey(key), new Set([...pubSites, ...subSites])]]), protocol: `${busProtocol ?? "broker"} (events)`, via: [], through: [], provenance: [] });
       }
     }
   }
   const out: MapRelation[] = [];
   for (const [key, parts] of pairs) {
     const [source, target] = key.split("|") as [string, string];
-    const kinds = PRIORITY.filter((k) => parts.some((p) => p.kind === k));
-    const merged = (k: RelationKind) => {
-      const m = new Map<string, Set<string>>();
-      for (const p of parts.filter((x) => x.kind === k)) for (const [n, s] of p.names) m.set(n, new Set([...(m.get(n) ?? []), ...s]));
-      return m;
-    };
-    const summaries = kinds.map((k) => summaryOf(k, merged(k), elements.get(target)?.kind === "external"));
-    const sites = new Set(parts.flatMap((p) => [...p.names.values()].flatMap((s) => [...s])));
-    const protocolsUsed = joinProtocols([...new Set(kinds.flatMap((k) => parts.filter((p) => p.kind === k).map((p) => p.protocol)))]);
-    const gateways = [...new Set(parts.flatMap((p) => p.via))].sort();
+    const arrow = arrowOf(parts, elements.get(target)?.kind === "external");
     out.push({
       source,
       target,
-      kind: kinds[0] as RelationKind,
-      title: summaries.map((x) => x.title).join("; "),
-      description: `${summaries.map((x) => x.detail).join(" ")} ${count(sites.size, "call site")}.`,
-      technology: `${protocolsUsed.join(", ")}${gateways.length > 0 ? ` via ${gateways.join(", ")}` : ""}`,
-      tags: [OVERVIEW, ...[...new Set(parts.flatMap((p) => [...p.provenance]))].sort(), ...(gateways.length > 0 ? ["viaGateway"] : [])],
-      metadata: { sites: String(sites.size), run },
+      kind: arrow.kind,
+      title: arrow.title,
+      description: `${arrow.detail} ${count(arrow.sites.length, "call site")}.`,
+      technology: arrow.technology,
+      tags: [OVERVIEW, ...[...new Set(parts.flatMap((p) => [...p.provenance]))].sort(), ...(arrow.via.length > 0 ? ["viaGateway"] : [])],
+      metadata: { sites: String(arrow.sites.length), run },
       keys: [],
-      sites: [...sites].sort(),
+      sites: arrow.sites,
     });
   }
   return out;
+}
+
+/** Calls of one kind that one arrow stands for: their names with the call sites behind each, protocol and gateways. */
+interface Part {
+  kind: RelationKind;
+  names: Map<string, Set<string>>;
+  protocol: string;
+  via: string[];
+  through: string[];
+  provenance: string[];
+}
+
+function partOf(r: MapRelation): Omit<Part, "provenance"> {
+  return {
+    kind: r.kind,
+    names: new Map(r.keys.map((k) => [displayKey(k), new Set(r.sites)] as [string, Set<string>])),
+    protocol: (r.technology ?? "").replace(/ (via|through) .*$/, ""),
+    via: (r.metadata.via ?? "").split(",").filter(Boolean),
+    through: r.metadata.through ? [r.metadata.through] : [],
+  };
+}
+
+/** What one arrow standing for several calls says: what flows by kind, the protocols, and the gateways and containers passed. */
+function arrowOf(parts: Array<Omit<Part, "provenance">>, external: boolean): { kind: RelationKind; title: string; detail: string; technology: string; via: string[]; sites: string[] } {
+  const kinds = PRIORITY.filter((k) => parts.some((p) => p.kind === k));
+  const merged = (k: RelationKind) => {
+    const m = new Map<string, Set<string>>();
+    for (const p of parts.filter((x) => x.kind === k)) for (const [n, s] of p.names) m.set(n, new Set([...(m.get(n) ?? []), ...s]));
+    return m;
+  };
+  const summaries = kinds.map((k) => summaryOf(k, merged(k), external));
+  const protocolsUsed = joinProtocols([...new Set(kinds.flatMap((k) => parts.filter((p) => p.kind === k).map((p) => p.protocol)))]);
+  const gateways = [...new Set(parts.flatMap((p) => p.via))].sort();
+  const through = [...new Set(parts.flatMap((p) => p.through))].sort();
+  return {
+    kind: kinds[0] as RelationKind,
+    title: summaries.map((x) => x.title).join("; "),
+    detail: summaries.map((x) => x.detail).join(" "),
+    technology: `${protocolsUsed.join(", ")}${gateways.length > 0 ? ` via ${gateways.join(", ")}` : ""}${through.length > 0 ? ` through ${through.join(", ")}` : ""}`,
+    via: gateways,
+    sites: [...new Set(parts.flatMap((p) => [...p.names.values()].flatMap((s) => [...s])))].sort(),
+  };
+}
+
+/**
+ * The title and protocol of one arrow a view draws for several relations,
+ * written as the C2 view writes them (`RPC: abac.*, authorization.* (26 actions)`).
+ * LikeC4 labels such an arrow `[...]` when the titles differ.
+ */
+export function mergedArrow(relations: MapRelation[], external: boolean): { title: string; technology: string } {
+  const { title, technology } = arrowOf(relations.map(partOf), external);
+  return { title, technology };
 }
 
 /** The family of a dotted name, `presence.setStatus` → `presence.*`; a name without a dot stands for itself. */
