@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import type { LoadedConfig } from "../config/load.js";
 import type { DataLayout } from "../core/paths.js";
 import { sampleFrame } from "../eval/run.js";
@@ -25,6 +25,7 @@ export interface FreezeManifest {
   guide: string;
   /** Hypothesis 1: share of the recoverable links (cases 1–7) each component alone resolves, weighted by strata. */
   predictedShares: { rules: number; infra: number; llm: number; units: number };
+  /** Paths are relative to the data workspace. */
   devReport: { path: string; sha256: string };
   h3Decision: { path: string; splitFilesFor: Record<string, boolean> };
 }
@@ -125,8 +126,8 @@ export function freeze(input: FreezeInput): { manifest: FreezeManifest; digest: 
     chunking: config.llm.chunking,
     guide,
     predictedShares: predictedShares(input),
-    devReport: { path: report, sha256: createHash("sha256").update(readFileSync(report)).digest("hex") },
-    h3Decision: { path: decisionPath, splitFilesFor: decision.splitFilesFor },
+    devReport: { path: relative(layout.root, report), sha256: createHash("sha256").update(readFileSync(report)).digest("hex") },
+    h3Decision: { path: relative(layout.root, decisionPath), splitFilesFor: decision.splitFilesFor },
   };
   mkdirSync(join(root, "freeze"), { recursive: true });
   writeFileSync(join(root, "freeze", "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);

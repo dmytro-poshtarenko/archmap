@@ -30,11 +30,11 @@
     "units": 201
   },
   "devReport": {
-    "path": "/Users/dmytro-poshtarenko/Projects/magister-diplom/data/reports/rocketchat/dev/summary.json",
+    "path": "reports/rocketchat/dev/summary.json",
     "sha256": "7b7bce9b9582bf61ac5e347c2b93b676b0e5642f4f98c80745ef4cec40fe9bb2"
   },
   "h3Decision": {
-    "path": "/Users/dmytro-poshtarenko/Projects/magister-diplom/data/out/rocketchat/h3/decision.json",
+    "path": "out/rocketchat/h3/decision.json",
     "splitFilesFor": {
       "claude-opus-5-5": false,
       "qwen3:30b-a3b-instruct-2507-q4_K_M": true

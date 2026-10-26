@@ -7,14 +7,11 @@ three sources of evidence, each of which can be switched off:
 - the infrastructure descriptions: docker compose, Traefik, nginx,
   Kubernetes, Helm, Terraform;
 - a large language model: Claude in the cloud, or any chat model in Ollama
-  locally (the measurements used Opus 5.5 and Qwen3 30B).
+  locally.
 
-It is also the measuring instrument of the master's thesis «Формування
-архітектури діючого мультирепозиторного програмного комплексу». It labels a
-reference sample, evaluates every variant of the method on the same call
-sites, runs the experiment on file length (hypothesis 3) and freezes the
-method before the test split is opened. The target system is described by one
-config file; Rocket.Chat is `configs/rocketchat.yaml`.
+archmap was built as the measuring instrument of a master's thesis. Its
+measurements on Rocket.Chat, and how to reproduce them, are in the last
+section, [The thesis: measurements on Rocket.Chat](#the-thesis-measurements-on-rocketchat).
 
 ## Quick start
 
@@ -49,8 +46,6 @@ archmap setup claude
 
 Calls through an SDK no rule pack knows are found only with a model.
 
-**From a clone** of this repository, run `pnpm install`, then `pnpm archmap <command> --config /path/to/archmap.yaml`. Inside the clone, a command without `--config` reads the Rocket.Chat config of the measurements.
-
 **How well `init` does.** On the Rocket.Chat snapshot of the measurements, `init` found the same parts as the hand-written config:
 - the Meteor server and its browser code;
 - the six microservices under their docker-compose names;
@@ -60,7 +55,191 @@ Calls through an SDK no rule pack knows are found only with a model.
 
 It also took one playground app, and it cannot see the held-out mobile repository. Without the model, the map from the detected config linked 4,523 call sites, against 4,602 from the hand-written one.
 
-## Results on Rocket.Chat
+## Requirements
+
+| What | Version | Needed for |
+|---|---|---|
+| Node.js | 24 | Running archmap |
+| git | — | Remote repositories in a config (`url`) |
+| Ollama | 0.40, with any chat model, named by `llm.local.model` | Optional: the local model |
+| `ANTHROPIC_API_KEY`, or Claude Code logged in to a subscription | — | Optional: the cloud model (`claude-opus-5-5` by default), `cloud` through the API, `cloud-cli` through Claude Code |
+| Helm | — | Optional: rendering Helm charts (`brew install helm`) |
+| pnpm | 10 | Developing archmap |
+
+**From a clone** of this repository:
+
+```bash
+pnpm install
+pnpm test
+pnpm archmap <command> --config /path/to/archmap.yaml
+```
+
+Inside the clone, a command without `--config` reads the Rocket.Chat config of the measurements.
+
+## Using the map
+
+### The whole system
+
+```bash
+archmap map --open   # the whole method, then the viewer on http://localhost:5173
+archmap view         # the viewer on the map built last
+```
+
+`archmap build-map` redraws the map of the last run without rerunning the steps. Every build points `<data>/out/<name>/current` at the latest map, so `view` and the MCP servers always open it.
+
+The viewer's title is `<product>: C4 Diagrams`, where the product is named after the main repository. Every view's title starts with its level of the C4 model:
+
+| Level | View | What it shows |
+|---|---|---|
+| C1 | `context` | The system as one box and the external systems its code calls, one per domain, with the endpoints reached. |
+| C2 | `index` | The containers that run code or hold data. Clients sit on top and databases at the bottom. One arrow per direction says what flows and by which protocol, e.g. `REST: livechat, users, rooms +70 groups (474 routes)` [HTTP via traefik]. Events go straight from publisher to subscriber, and DDP goes to the container that terminates the gateway's WebSocket. |
+| C2 | `external_systems` | The containers that call systems outside the product, and those systems. |
+| C2 | `gateway_<name>` | Who sends requests through a gateway, and where its rules send them by path. |
+| C2 | `bus_<name>` | Which containers publish events to a message bus and which receive them. |
+| C3 | `of_<container>` | One container from inside: REST groups, DDP methods and subscriptions, broker namespaces, scheduled jobs, and who calls them. The database view keeps the collections two or more containers share. |
+| C2 or C3 | `feature_<name>` | The containers and components one feature uses (below). |
+
+**Reading the views.** Every view's description has the key, and the viewer's legend lists the element types.
+
+| What you see | What it means |
+|---|---|
+| Box colour and shape | The element's type: client application, server-side container, database, message bus, gateway, external system, API group, collection, scheduled jobs. |
+| Text in a box | The technology, from the container image or the package.json (`Node.js, Moleculer`, `MongoDB 8.0`), then a one-line summary. |
+| Solid blue arrow | Request and response: REST, a DDP method, a broker action. |
+| Dashed amber arrow | Asynchronous: a broker event, a DDP subscription. |
+| Grey arrow | Database access. |
+| Dotted grey arrow | Only shared code links the two. The call sits in a package several containers bundle, so which of them makes it is not known. |
+| Text in brackets under a label | The protocol, and the gateway or the container the traffic passes: `HTTP via traefik`, `WebSocket (DDP) through ddp-streamer-service`, `NATS (RPC, events)`, `MongoDB`. |
+| Light grey box | The method found no links for that container. Its summary counts the call sites it has, or says that none of its code was in the workspace. |
+
+Bus and database protocols come from the URLs in the deployment descriptions (`TRANSPORTER=nats://…`), else from the container images.
+
+**Which containers run a call.** A call site belongs to the containers that run it under the deployment, as the method narrows them. A broker service registered only in some containers runs only there. Code loaded only under conditions the profile makes false does not run.
+
+### One feature
+
+```bash
+archmap feature-view "User presence (presence service actions, their callers, sessions collection)" --seeds ns:presence,coll:usersSessions
+archmap remove-view feature_user_presence
+```
+
+**The name.** Write it in English: what the feature is, then in parentheses what the view holds. The map adds the C4 level: C3 when the view shows components inside a container, C2 when it shows containers only. The view id comes from the words before the parenthesis (`feature_user_presence`).
+
+**Seeds.** A seed is one of:
+- an element id (`rocketchat`);
+- a route pattern (`/api/v1/livechat*`, where `*` stands for any characters, `/` included);
+- a broker service (`ns:presence`);
+- a collection (`coll:users`);
+- a keyword.
+
+**Following the links.** The view follows links from the seeds:
+- `--depth`: hops, 1 to 4;
+- `--direction`: `in`, `out` or `both`;
+- `--kinds`: only these kinds of links.
+
+### From Claude Code
+
+`archmap setup claude` registers two MCP servers for the project's config: `archmap` and `archmap-likec4`. Use `--scope user` to have them in every folder, and `--print` to see the entry for another MCP client.
+
+| Server | Tools |
+|---|---|
+| `archmap` | `create_feature_view` builds a feature view and returns its parts, the links between them with their routes, and the viewer address. `delete_feature_view` removes one. `list_unresolved` lists what the method left open, as metadata only. `rebuild_map` reruns classification, matching and the model's answers (recorded ones unless `llm: live`) and rebuilds the map. |
+| `archmap-likec4` | Read-only: elements, relationships, paths between parts, views. It is LikeC4's own server, of the version archmap pins, on the map built last. |
+
+Questions to try:
+- «Which parts take part in checkout? Make a feature view.»
+- «Which external systems does the system call, and from which containers?»
+- «What did the method leave unresolved in the web client, and why?»
+
+In a clone of this repository, `.mcp.json` registers both servers, as `archmap` and `likec4`, for the Rocket.Chat config.
+
+## The pipeline, step by step
+
+`archmap map` runs these steps in order. Each one is also a command of its own, which reads the previous step's result from the database:
+
+```bash
+archmap pin                  # resolve the branches of remote repositories to commits (<config>.lock.json)
+archmap fetch                # clone them at the pinned commits
+archmap inventory            # files, code units, parts of the system, licence zones
+archmap extract              # call sites and route declarations by the rule packs (rules/*.yaml)
+archmap extract-infra        # containers, environment, gateway rules
+archmap llm-routes --model local     # task (a): declarations the rules do not cover
+archmap classify             # predicted case 1–8 of every call site
+archmap match                # links; --no-rules, --no-infra and --no-llm make the variants without one source
+archmap resolve --model local        # tasks (b)/(c): the model resolves the sites left open
+archmap build-map            # the LikeC4 model, validated
+```
+
+`--model` is `local` (Ollama), `cloud-cli` (Claude Code), `cloud` (the API), or `replay-*` of one of them to read recorded answers only.
+- Answers of the model are cached by the prompt as sent, so a repeated run asks nothing.
+- `archmap llm-cost` estimates what the cloud model would cost.
+- `archmap llm-stats` shows what the cache holds and how stable repeated answers are.
+- Every command that calls the cloud model honours `--budget-usd` (default from the config: $60).
+
+## Data
+
+A project's data lives in `.archmap/` next to its `archmap.yaml`, or where `--data` or `$ARCHMAP_DATA` say. It holds:
+- `repos/<id>@<sha>`: checkouts of remote repositories at the pinned commits;
+- `db/<name>.sqlite`: the method's database, with the model's answers;
+- `out/<name>/`: runs and maps; `current` is the map built last.
+
+## Code that may not be published
+
+A repository or a licence zone marked `publishable: false` is never sent to the cloud model, and the MCP server lists no address from it. Only the local model reads it. `archmap init` marks the repositories it finds as publishable; change that for code that must stay on the computer.
+
+## LikeC4
+
+The map is LikeC4 source text that archmap writes; nothing in LikeC4 is patched.
+
+**What the tool uses.** archmap uses LikeC4 in three ways:
+- **the language:** `src/map/dsl.ts` and `src/map/feature.ts` write it;
+- **the API:** `LikeC4.fromWorkspace` validates a map and computes its views;
+- **the command-line tool:** `likec4 start` behind `archmap view`, and `likec4 mcp` behind `archmap likec4-mcp`.
+
+The API and the command-line tool are used only in `src/map/likec4.ts`.
+
+**The version** is pinned exactly in `package.json` (`likec4` 1.59.4) and in `pnpm-lock.yaml`. Nothing changes until someone changes it.
+
+**What the tests hold.** The map tests run LikeC4 itself on mini-complex. They check:
+- the model has no diagnostics;
+- every view title starts with its C4 level;
+- no arrow is labelled `[...]`;
+- the C2 view draws only the summary arrows;
+- a feature view draws the arrows the generator expects;
+- `likec4-mcp` starts LikeC4's MCP server of the pinned version.
+
+**To upgrade LikeC4:**
+
+```bash
+pnpm add likec4@<version> --save-exact
+pnpm test
+pnpm archmap build-map
+pnpm archmap view
+```
+
+1. Install the new version with `--save-exact`.
+2. Run `pnpm test`. A failure names what the new version draws differently.
+3. Rebuild the map and look at the C1, C2 and a feature view in the viewer.
+4. Retake screenshots if the look has changed.
+
+## Tests
+
+```bash
+pnpm test             # unit and integration tests, case fixtures, mini-complex
+```
+
+The system test, a full run from a clean clone, and the check of the install and setup commands are in `docs/system-test.md`. Design notes for each milestone are in `docs/`.
+
+## The thesis: measurements on Rocket.Chat
+
+archmap is the measuring instrument of the master's thesis «Формування
+архітектури діючого мультирепозиторного програмного комплексу». For it, the
+tool labels a reference sample, evaluates every variant of the method on the
+same call sites, runs the experiment on file length (hypothesis 3) and freezes
+the method before the test split is opened. The target is described by
+`configs/rocketchat.yaml`.
+
+### Results
 
 **Snapshot.** Pinned on 2026-10-15 (`configs/rocketchat.lock.json`):
 
@@ -102,173 +281,45 @@ It also took one playground app, and it cannot see the held-out mobile repositor
 - By full target key: 0 % recall, because it never names the part that serves a call.
 - By path only: R₁₋₇ 12.5 % [8.1; 17.5], P 75.8 %, all on HTTP. The method scored the same way gets 97.6 % and 98.8 %.
 
-**Gap check** (`pnpm archmap label gap-report`). In 20 files read in full:
+**Gap check** (`archmap label gap-report`). In 20 files read in full:
 - the text search for candidates found 48 of 49 call sites, the method's extraction 46;
 - both found all 42 sites with a target in the system, so the miss rate is at most 8.4 % at 95 %.
 
-**Stability of the cloud model** (`pnpm archmap llm-stats`). Repeated requests gave the same decision:
+**Stability of the cloud model** (`archmap llm-stats`). Repeated requests gave the same decision:
 - route extraction: 27 of 27;
 - choosing among candidates: 21 of 21;
 - free search: 36 of 44.
 
 **Memorisation.** From a file path alone, Opus named 50 of 59 routes and Qwen 2 of 59; with the paths renamed, both named none. Opus knows Rocket.Chat from training, which is a threat to validity for its route extraction.
 
-**The map.** Built from the full method with Opus: 194 elements and 268 relations.
+**The map.** Built from the full method with Opus: 195 elements and 293 relations.
 - C1: Rocket.Chat and the 7 external systems its code calls.
-- C2: its 15 containers.
+- C2: its 12 containers that run code or hold data; the gateway and the bus have views of their own.
 - C3: one view of each container.
 
-## Requirements
+### What the measurements need
+
+Beyond the requirements above:
 
 | What | Version | Needed for |
 |---|---|---|
-| Node.js | 24 | Everything |
-| pnpm | 10 | Developing archmap and the measurements; a global install needs npm only |
-| git | — | Remote repositories, and developing archmap |
+| pnpm | 10 | Every command below, from a clone |
 | Python with uv | 3.14, uv 0.12 | The statistical analysis (`analysis/`) |
-| Ollama | 0.40, with any chat model, named by `llm.local.model` in the config (the measurements used `qwen3:30b-a3b-instruct-2507-q4_K_M`) | The local model |
-| `ANTHROPIC_API_KEY`, or Claude Code logged in to a subscription | — | The cloud model (`claude-opus-5-5`): `--model cloud` through the API, `--model cloud-cli` through Claude Code |
-| Helm | — | Optional: rendering Helm charts (`brew install helm`) |
-| codebase-memory-mcp | 0.7 or later | Optional: the baseline |
+| codebase-memory-mcp | 0.7 or later | The baseline |
 
 ```bash
 pnpm install
 cd analysis && uv sync && cd ..
 pnpm test
+pnpm test:system      # invariants on the pinned Rocket.Chat snapshot (needs fetch, inventory, extract, extract-infra)
+cd analysis && uv run pytest
 ```
 
-## Data workspace
+The measurement data lives in `../data` next to the clone, or in `$ARCHMAP_DATA`. Besides the folders of a project's data, it holds `labels/<target>/` (the reference labels) and `reports/<target>/` (tables and figures). It is never published, apart from the labels exported as below.
 
-Experiment data lives outside this repository: `../data` by default, or
-`$ARCHMAP_DATA`, or `--data <dir>`. It holds:
-- `repos/<id>@<sha>`: checkouts at the pinned commits;
-- `db/<target>.sqlite`: the method's database;
-- `labels/<target>/`: the reference labels;
-- `out/<target>/`: runs, maps, evaluations, the hypothesis 3 kit;
-- `reports/<target>/`: tables and figures.
+`pnpm archmap run-all [--model local|cloud|cloud-cli|replay-…]` runs every run the hypotheses need, evaluates them and writes the time and cost of each step to `out/<target>/run-all-<split>.json`. `pnpm archmap evaluate --run <run> --split dev` scores one run against the labels: recall, precision and θ.
 
-The data is never published.
-
-## The pipeline
-
-Every step is a command that reads the previous step's result from the
-database. `--config <file>` chooses the target; the default is Rocket.Chat.
-
-```bash
-pnpm archmap pin                 # resolve the branches to commits (configs/<target>.lock.json)
-pnpm archmap fetch               # clone the repositories at the pinned commits
-pnpm archmap inventory           # files, code units, parts of the system, licence zones, dev/test split
-pnpm archmap extract             # call sites and route declarations by the rule packs (rules/*.yaml)
-pnpm archmap extract-infra       # containers, environment, gateway rules
-pnpm archmap llm-routes --model local     # task (a): declarations the rules do not cover
-pnpm archmap classify            # predicted case 1–8 of every call site
-pnpm archmap match               # one run per variant: --no-rules, --no-infra, --no-llm
-pnpm archmap resolve --base full --mode select --model local   # tasks (b)/(c): the model resolves open sites
-pnpm archmap build-map --run full.select.local                 # LikeC4 model, validated
-pnpm archmap evaluate --run full.select.local --split dev      # recall, precision, θ against the labels
-```
-
-`pnpm archmap run-all [--model local|cloud|cloud-cli|replay-local|replay-cloud|replay-cloud-cli]` does
-all of it in one command, for every run the hypotheses need. It then writes
-the time and cost of each step to `out/<target>/run-all-<split>.json`.
-- Answers of the model are cached by the prompt as sent, so a repeated run
-  asks nothing.
-- A replay model only reads recorded answers.
-
-**Model cost.**
-- `pnpm archmap llm-cost` estimates what the cloud model would cost.
-- `pnpm archmap llm-stats` shows what the cache holds and how stable repeated
-  answers are.
-- Every command that calls the cloud model honours `--budget-usd` (default
-  from the config: $60).
-
-## Using the map
-
-### The whole system
-
-```bash
-pnpm archmap build-map   # the full method with the model's answers; LikeC4 validates it
-pnpm archmap view        # the LikeC4 viewer on http://localhost:5173
-```
-
-`build-map` also points `data/out/<target>/current` at the map it built, so
-`view` and the MCP servers always open the latest one. The viewer's title is
-`<product>: C4 Diagrams`, where the product is named after the main
-repository (`Rocket.Chat`). Every view's title starts with its level of the
-C4 model:
-
-| Level | View | What it shows |
-|---|---|---|
-| C1 | `context` | The system as one box and the external systems its code calls, one per domain, with the endpoints reached. |
-| C2 | `index` | The containers that run code or hold data. Clients sit on top and databases at the bottom. One arrow per direction says what flows and by which protocol, e.g. `REST: livechat, users, rooms +70 groups (474 routes)` [HTTP via traefik]. Events go straight from publisher to subscriber, and DDP goes to the container that terminates the gateway's WebSocket. |
-| C2 | `external_systems` | The containers that call systems outside the product, and those systems. |
-| C2 | `gateway_<name>` | Who sends requests through a gateway, and where its rules send them by path. |
-| C2 | `bus_<name>` | Which containers publish events to a message bus and which receive them. |
-| C3 | `of_<container>` | One container from inside: REST groups, DDP methods and subscriptions, broker namespaces, scheduled jobs, and who calls them. The database view keeps the collections two or more containers share. |
-| C2 or C3 | `feature_<name>` | The containers and components one feature uses (below). |
-
-**Reading the views.** Every view's description has the key, and the viewer's legend lists the element types.
-
-| What you see | What it means |
-|---|---|
-| Box colour and shape | The element's type: client application, server-side container, database, message bus, gateway, external system, API group, collection, scheduled jobs. |
-| Text in a box | The technology, from the container image or the package.json (`Node.js, Moleculer`, `MongoDB 8.0`), then a one-line summary. |
-| Solid blue arrow | Request and response: REST, a DDP method, a broker action. |
-| Dashed amber arrow | Asynchronous: a broker event, a DDP subscription. |
-| Grey arrow | Database access. |
-| Dotted grey arrow | Only shared code links the two. The call sits in a package several containers bundle, so which of them makes it is not known. |
-| Text in brackets under a label | The protocol, and the gateway or the container the traffic passes: `HTTP via traefik`, `WebSocket (DDP) through ddp-streamer-service`, `NATS (RPC, events)`, `MongoDB`. |
-| Light grey box | The method found no links for that container. Its summary counts the call sites it has, or says that none of its code was in the workspace. |
-
-Bus and database protocols come from the URLs in the deployment descriptions (`TRANSPORTER=nats://…`), else from the container images.
-
-**Which containers run a call.** A call site belongs to the containers that run it under the deployment, as the method narrows them. A broker service registered only in some containers runs only there. Code loaded only under conditions the profile makes false does not run.
-
-### One feature
-
-```bash
-pnpm archmap feature-view "User presence (presence service actions, their callers, sessions collection)" --seeds ns:presence,coll:usersSessions
-pnpm archmap remove-view feature_user_presence
-```
-
-**The name.** Write it in English: what the feature is, then in parentheses what the view holds. The map adds the C4 level: C3 when the view shows components inside a container, C2 when it shows containers only. The view id comes from the words before the parenthesis (`feature_user_presence`).
-
-**Seeds.** A seed is one of:
-- an element id (`rocketchat`);
-- a route pattern (`/api/v1/livechat*`, where `*` stands for any characters, `/` included);
-- a broker service (`ns:presence`);
-- a collection (`coll:users`);
-- a keyword.
-
-**Following the links.** The view follows links from the seeds:
-- `--depth`: hops, 1 to 4;
-- `--direction`: `in`, `out` or `both`;
-- `--kinds`: only these kinds of links.
-
-### From Claude Code
-
-Claude Code started in this directory picks up `.mcp.json`, which registers
-two servers. To use them from any project:
-
-```bash
-claude mcp add archmap -- pnpm -C /path/to/tool -s archmap mcp
-claude mcp add likec4 -- pnpm -C /path/to/tool -s archmap likec4-mcp
-```
-
-For another codebase, pass its config to both, e.g. `archmap --config /path/to/target.yaml mcp`.
-`likec4-mcp` serves the map built last for that config, with the LikeC4 version the tool pins.
-
-| Server | Tools |
-|---|---|
-| `archmap` | `create_feature_view` builds a feature view and returns its parts, the links between them with their routes, and the viewer address. `delete_feature_view` removes one. `list_unresolved` lists what the method left open, as metadata only. `rebuild_map` reruns classification, matching and the model's answers (recorded ones unless `llm: live`) and rebuilds the map. |
-| `likec4` | Read-only: elements, relationships, paths between parts, views. |
-
-Questions to try:
-- «Which parts of Rocket.Chat take part in user presence? Make a feature view.»
-- «Which external systems does Rocket.Chat call, and from which containers?»
-- «What did the method leave unresolved in the desktop client, and why?»
-
-## Reference labelling
+### Reference labelling
 
 ```bash
 pnpm archmap label candidates    # candidate lines by a text search independent of the method
@@ -282,7 +333,7 @@ The protocol is `docs/labelling-guide.md` (in Ukrainian). The interface never
 shows the method's answers. The test labels can be written at any time but
 read as the reference only after the freeze.
 
-## Experiments before the freeze
+### Experiments before the freeze
 
 ```bash
 pnpm archmap exp h3-generate                 # 90 synthetic controllers of different length, checked by the route detector
@@ -299,11 +350,11 @@ The analysis writes:
 - the decision of hypothesis 3 on splitting long files to
   `out/<target>/h3/decision.json`.
 
-## Freeze and the test protocol
+### Freeze and the test protocol
 
 ```bash
 pnpm archmap freeze --tag freeze-1 --check   # what still stops the freeze
-pnpm archmap freeze --tag freeze-1           # manifest, commit and annotated tag; prints the digest for the supervisor
+pnpm archmap freeze --tag freeze-1           # manifest, commit and annotated tag; prints a short summary of the manifest
 ```
 
 **Conditions.** The freeze needs:
@@ -329,7 +380,7 @@ pnpm archmap run-all --model cloud --split heldout
 
 Every evaluation is appended to `audit/evaluations.jsonl`. Entries since 2026-10-26 say how predictions met the labels (`compare`: `key` or `path`). Earlier entries scored by path only have a run id ending in `@path`.
 
-## Reproducing the measurements
+### Reproducing the measurements
 
 The labels are published without code: repository, commit, path, line, type, target and case (`pnpm archmap label export`). With them:
 
@@ -356,59 +407,10 @@ pnpm archmap evaluate --run cbm --split test --compare path
 
 **The gap check** came after the freeze. Run it on a later commit: `pnpm archmap label gap-report`. It reads the test labels only while the extraction is still the frozen one.
 
-## Licences
+### Rocket.Chat Enterprise code
 
-The tool is MIT-licensed.
-
-**Rocket.Chat Enterprise code** (`ee/`, `apps/meteor/ee/`):
+The tool is MIT-licensed. Rocket.Chat's Enterprise code (`ee/`, `apps/meteor/ee/`) is a licence zone that may not be published:
 - it never enters this repository, its fixtures or published data;
-- `pnpm licence-check` runs before every commit and fails on any fingerprint
-  match;
-- it is never sent to the cloud model: `llm.cloud.sendNonPublishable` is off,
-  and only the local model reads it;
+- `pnpm licence-check` runs before every commit, and in CI, and fails on any fingerprint match;
+- it is never sent to the cloud model: `llm.cloud.sendNonPublishable` is off, and only the local model reads it;
 - the MCP server lists no address from it.
-
-## LikeC4
-
-The map is LikeC4 source text that archmap writes; nothing in LikeC4 is patched.
-
-**What the tool uses.** archmap uses LikeC4 in three ways:
-- **the language:** `src/map/dsl.ts` and `src/map/feature.ts` write it;
-- **the API:** `LikeC4.fromWorkspace` validates a map and computes its views;
-- **the command-line tool:** `likec4 start` behind `archmap view`, and `likec4 mcp` behind `archmap likec4-mcp`.
-
-The API and the command-line tool are used only in `src/map/likec4.ts`.
-
-**The version** is pinned exactly in `package.json` (`likec4` 1.59.4) and in `pnpm-lock.yaml`. Nothing changes until someone changes it.
-
-**What the tests hold.** The map tests run LikeC4 itself on mini-complex. They check:
-- the model has no diagnostics;
-- every view title starts with its C4 level;
-- no arrow is labelled `[...]`;
-- the C2 view draws only the summary arrows;
-- a feature view draws the arrows the generator expects;
-- `likec4-mcp` starts LikeC4's MCP server of the pinned version.
-
-**To upgrade LikeC4:**
-
-```bash
-pnpm add likec4@<version> --save-exact
-pnpm test
-pnpm archmap build-map
-pnpm archmap view
-```
-
-1. Install the new version with `--save-exact`.
-2. Run `pnpm test`. A failure names what the new version draws differently.
-3. Rebuild the map and look at the C1, C2 and a feature view in the viewer.
-4. Retake screenshots if the look has changed.
-
-## Tests
-
-```bash
-pnpm test             # unit and integration tests, case fixtures, mini-complex
-pnpm test:system      # invariants on the pinned Rocket.Chat snapshot (needs fetch, inventory, extract, extract-infra)
-cd analysis && uv run pytest
-```
-
-The system test, a full run from a clean clone, and its results are in `docs/system-test.md`. Design notes for each milestone are in `docs/`.

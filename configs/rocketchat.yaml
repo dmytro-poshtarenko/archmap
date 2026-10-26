@@ -88,7 +88,7 @@ infra:
   helm: [{ chart: "helm:rocketchat", release: rocketchat }]
 
 llm:
-  # no API key: the cloud model is reached through Claude Code on the author's subscription
+  # the cloud model is reached through Claude Code (channel cli), with no API key
   cloud: { model: claude-opus-5-5, channel: cli, effort: { extract: medium, select: low, free: medium, probe: low }, batch: true, fallbacks: false }
   local: { model: "qwen3:30b-a3b-instruct-2507-q4_K_M", seed: 42, numCtx: auto, maxCtx: 131072 }
   # Server files sent to route extraction: declarations of HTTP routes, Meteor
