@@ -6,7 +6,7 @@
 |---|---|---|
 | `cloud` (`AnthropicProvider`) | `claude-opus-5-5` | See below |
 | `cloud-cli` (`ClaudeCliProvider`) | `claude-opus-5-5`, through Claude Code on the user's subscription | See below |
-| `local` (`OllamaProvider`) | `qwen3:30b-a3b-instruct-2507-q4_K_M` | See below |
+| `local` (`OllamaProvider`) | Any chat model in Ollama, named by `llm.local.model`; the measurements used `qwen3:30b-a3b-instruct-2507-q4_K_M` | See below |
 | `replay-local`, `replay-cloud`, `replay-cloud-cli` (`ReplayProvider`) | the recorded one | Recorded answers only; a request never recorded is an error |
 
 **The cloud model through the subscription (`cloud-cli`).** It is the same model as `cloud`, reached through Claude Code in print mode instead of the API, so it costs nothing beyond the subscription.
@@ -47,10 +47,19 @@
 - Many requests go as one Message Batch at half price.
 - `countTokens` counts input.
 
-**Local model.**
-- `/api/chat` is called with `format` set to the JSON schema, temperature 0,
-  seed 42 and `think: false`.
-- The window (`num_ctx`) is sized for each request.
+**Local model.** Any model Ollama can chat with. The config names it (`llm.local.model`), and nothing in the provider is specific to one model.
+- **Before the first request** the provider asks Ollama about the model (`/api/show`):
+  - a model that is not pulled stops the run with `ollama pull <model>`;
+  - so does a model that cannot chat, such as an embedding model;
+  - an unreachable Ollama stops it with `ollama serve`.
+- **`/api/chat`** is called with:
+  - `format` set to the JSON schema;
+  - temperature 0 and seed 42;
+  - `think: false`, but only when the model reports that it thinks.
+- **The window** (`num_ctx`) is sized for each request. It never goes beyond the context the model was trained for (its `*.context_length`), nor beyond `maxCtx`.
+- **Checked live on 2026-10-26 with Ollama 0.40.10:**
+  - qwen3 reported thinking and a 262,144-token context, and answered;
+  - `nomic-embed-text` and a missing model stopped with the messages above.
 - The schema only constrains decoding; the model never sees it. So every
   prompt names each field and value of its answer.
   - Found on 2026-10-20 in the dev run with prompt version 1, which named the
@@ -75,8 +84,7 @@
     back to the estimate, which was 8.5k tokens short on numbered code.
   - The refusal of the real request then stopped the H3 run after 10 of 90
     variants. Nothing was cut: Ollama refused rather than truncated.
-- A prompt beyond the largest window (`maxCtx`, 131,072) is reported as
-  `truncated-input` and gives no answer.
+- A prompt beyond the largest window is reported as `truncated-input` and gives no answer. That window is `maxCtx` (131,072), or the model's trained context when it is shorter.
 
 ## Answer cache, budget, stability
 

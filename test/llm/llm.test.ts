@@ -6,7 +6,7 @@ import { cacheKey } from "../../src/llm/cache.js";
 import { LlmClient, repeatsOf } from "../../src/llm/client.js";
 import { loadTemplate, render, TEMPLATES } from "../../src/llm/prompts.js";
 import { ClaudeCliProvider, type RunCommand } from "../../src/llm/providers/claudeCli.js";
-import { errorOf, OllamaProvider, windowFor } from "../../src/llm/providers/ollama.js";
+import { errorOf, infoOf, OllamaProvider, windowFor } from "../../src/llm/providers/ollama.js";
 import { ReplayProvider } from "../../src/llm/providers/replay.js";
 import { decisionOf } from "../../src/llm/stats.js";
 import { chunksOf, filesForExtraction, RouteAnswer, routesFromAnswer, type SourceFile } from "../../src/llm/tasks/extractRoutes.js";
@@ -130,6 +130,12 @@ describe("the answer cache", () => {
   });
 });
 
+/** Ollama as the tests need it: `/api/show` describes the model (by default a thinking one with a long context), `/api/chat` answers as given. */
+const ollama =
+  (chat: (url: string, body: unknown) => Promise<unknown>, show: unknown = { capabilities: ["completion", "thinking"], model_info: { "qwen3moe.context_length": 262144 } }) =>
+  async (url: string, body: unknown) =>
+    url.endsWith("/api/show") ? show : chat(url, body);
+
 describe("the Ollama provider", () => {
   it("never cuts the input: a refused prompt is sent again with a window that fits", async () => {
     const windows: number[] = [];
@@ -143,7 +149,7 @@ describe("the Ollama provider", () => {
       }
       return { model: "qwen", message: { content: '{"value":"ok"}' }, done_reason: "stop", prompt_eval_count: 13932, eval_count: 4 };
     };
-    const p = new OllamaProvider("qwen", { url: "http://x", seed: 42, numCtx: 4096, maxCtx: 131072, post: fake });
+    const p = new OllamaProvider("qwen", { url: "http://x", seed: 42, numCtx: 4096, maxCtx: 131072, post: ollama(fake) });
     const a = await p.complete(request("long"));
     expect(a.parsed).toEqual({ value: "ok" });
     expect(a.usage.input).toBe(13932);
@@ -162,7 +168,7 @@ describe("the Ollama provider", () => {
       return { model: "qwen", message: { content: '{"value":"ok"}' }, done_reason: "stop", prompt_eval_count: 20000, eval_count: 50 };
     };
     const long = { ...request("x".repeat(30000)), maxTokens: 100 };
-    const a = await new OllamaProvider("qwen", { url: "http://x", seed: 1, numCtx: "auto", maxCtx: 131072, post: fake }).complete(long);
+    const a = await new OllamaProvider("qwen", { url: "http://x", seed: 1, numCtx: "auto", maxCtx: 131072, post: ollama(fake) }).complete(long);
     expect(windows[0]).toBe(1);
     expect(windows[1]).toBe(windowFor(20000, 100, 131072));
     expect(windows[2]).toBeGreaterThan(windows[1] as number);
@@ -182,7 +188,7 @@ describe("the Ollama provider", () => {
       return { model: "qwen", message: { content: '{"value":"ok"}' }, done_reason: "stop", prompt_eval_count: tokens, eval_count: 20 };
     };
     const long = { ...request("x".repeat(30000)), maxTokens: 100 };
-    const a = await new OllamaProvider("qwen", { url: "http://x", seed: 1, numCtx: "auto", maxCtx: 131072, post: fake }).complete(long);
+    const a = await new OllamaProvider("qwen", { url: "http://x", seed: 1, numCtx: "auto", maxCtx: 131072, post: ollama(fake) }).complete(long);
     expect(windows).toEqual([1, windowFor(tokens, 100, 131072)]);
     expect(a).toMatchObject({ parsed: { value: "ok" }, stopReason: "end_turn" });
     expect(errorOf("model not found")).toEqual({ message: "model not found" });
@@ -190,11 +196,47 @@ describe("the Ollama provider", () => {
 
   it("reports a cut answer and an input beyond the largest window", async () => {
     const cut = async () => ({ model: "qwen", message: { content: '{"val' }, done_reason: "length", prompt_eval_count: 10, eval_count: 100 });
-    const a = await new OllamaProvider("qwen", { url: "http://x", seed: 1, numCtx: "auto", maxCtx: 8192, post: cut }).complete(request("q"));
+    const a = await new OllamaProvider("qwen", { url: "http://x", seed: 1, numCtx: "auto", maxCtx: 8192, post: ollama(cut) }).complete(request("q"));
     expect(a).toMatchObject({ parsed: null, stopReason: "max_tokens" });
     const huge = async () => ({ error: { type: "exceed_context_size_error", n_prompt_tokens: 50000, n_ctx: 8192 } });
-    const b = await new OllamaProvider("qwen", { url: "http://x", seed: 1, numCtx: 8192, maxCtx: 8192, post: huge }).complete(request("q"));
+    const b = await new OllamaProvider("qwen", { url: "http://x", seed: 1, numCtx: 8192, maxCtx: 8192, post: ollama(huge) }).complete(request("q"));
     expect(b).toMatchObject({ parsed: null, stopReason: "truncated-input" });
+  });
+
+  it("works with any chat model Ollama has: no thinking option for a model that does not think, no window beyond its context", async () => {
+    const bodies: Array<{ think?: boolean; options: { num_ctx: number } }> = [];
+    const chat = async (_url: string, payload: unknown) => {
+      const body = payload as { think?: boolean; options: { num_ctx: number } };
+      bodies.push(body);
+      if (body.options.num_ctx === 1) return { error: JSON.stringify({ error: { type: "exceed_context_size_error", n_prompt_tokens: 6000, n_ctx: 1 } }) };
+      return { error: JSON.stringify({ error: { type: "exceed_context_size_error", n_prompt_tokens: 6000, n_ctx: body.options.num_ctx } }) };
+    };
+    // a small model trained on 4096 tokens, without thinking
+    const show = { capabilities: ["completion", "tools"], model_info: { "llama.context_length": 4096 } };
+    const long = { ...request("x".repeat(30000)), maxTokens: 100 };
+    const a = await new OllamaProvider("llama3.2:3b", { url: "http://x", seed: 1, numCtx: "auto", maxCtx: 131072, post: ollama(chat, show) }).complete(long);
+    expect(bodies.every((b) => !("think" in b))).toBe(true);
+    expect(Math.max(...bodies.map((b) => b.options.num_ctx))).toBeLessThanOrEqual(4096);
+    expect(a).toMatchObject({ parsed: null, stopReason: "truncated-input" });
+    // a model that thinks is told not to
+    const thinking: Array<{ think?: boolean }> = [];
+    const answer = async (_url: string, payload: unknown) => {
+      thinking.push(payload as { think?: boolean });
+      return { model: "qwen3", message: { content: '{"value":"ok"}' }, done_reason: "stop", prompt_eval_count: 10, eval_count: 4 };
+    };
+    await new OllamaProvider("qwen3", { url: "http://x", seed: 1, numCtx: "auto", maxCtx: 131072, post: ollama(answer) }).complete(request("q"));
+    expect(thinking.map((b) => b.think)).toEqual([false]);
+  });
+
+  it("says what to do when the model is not pulled, cannot chat, or Ollama is not running", async () => {
+    expect(() => infoOf("llama3.2:3b", { error: 'model "llama3.2:3b" not found, try pulling it first' })).toThrow("pull it with `ollama pull llama3.2:3b`");
+    expect(() => infoOf("nomic-embed-text", { capabilities: ["embedding"] })).toThrow('"nomic-embed-text" cannot chat');
+    // an Ollama that does not report capabilities: the old behaviour, with the configured window
+    expect(infoOf("m", {})).toEqual({ thinking: null, contextLength: null });
+    const down = async () => {
+      throw new Error("connect ECONNREFUSED 127.0.0.1:11434");
+    };
+    await expect(new OllamaProvider("m", { url: "http://127.0.0.1:11434", seed: 1, numCtx: "auto", maxCtx: 8192, post: down }).complete(request("q"))).rejects.toThrow("start it with `ollama serve`");
   });
 });
 

@@ -52,16 +52,51 @@ interface ChatResponse {
   error?: string | { type?: string; message?: string; n_prompt_tokens?: number; n_ctx?: number };
 }
 
+interface ShowResponse {
+  error?: string | { message?: string };
+  capabilities?: string[];
+  model_info?: Record<string, unknown>;
+}
+
+/** What Ollama says about a model: whether it thinks, and the context it was trained for (null when Ollama does not say). */
+export interface ModelInfo {
+  thinking: boolean | null;
+  contextLength: number | null;
+}
+
 /**
- * A local model in Ollama: temperature 0, a fixed seed, the schema as the
- * `format` of the answer. The context window is sized for each request. A
- * prompt longer than the window is refused by Ollama with its exact token
- * count; the request is then sent again with a window that fits, so input
- * is never cut silently.
+ * Ollama's answer to `/api/show`. A model that is not pulled, or one that
+ * cannot chat (an embedding model), stops the run with what to do instead.
+ */
+export function infoOf(model: string, data: ShowResponse): ModelInfo {
+  const error = typeof data.error === "string" ? data.error : data.error?.message;
+  if (error) {
+    throw new Error(
+      /not found/i.test(error)
+        ? `ollama: there is no model "${model}"; pull it with \`ollama pull ${model}\`, or set llm.local.model to one that \`ollama list\` shows`
+        : `ollama: ${error}`,
+    );
+  }
+  const capabilities = Array.isArray(data.capabilities) ? data.capabilities : null;
+  if (capabilities && !capabilities.includes("completion")) throw new Error(`ollama: "${model}" cannot chat (it can: ${capabilities.join(", ")}); choose a chat model`);
+  const length = Object.entries(data.model_info ?? {}).find(([key]) => key.endsWith(".context_length"))?.[1];
+  return { thinking: capabilities ? capabilities.includes("thinking") : null, contextLength: typeof length === "number" && length > 0 ? length : null };
+}
+
+/**
+ * A local model in Ollama, any model that can chat: temperature 0, a fixed
+ * seed, the schema as the `format` of the answer.
+ * - **The window** is sized for each request, never beyond the context the
+ *   model was trained for. A prompt longer than the window is refused by
+ *   Ollama with its exact token count; the request is then sent again with a
+ *   window that fits, so input is never cut silently.
+ * - **Thinking** is switched off for a model that thinks; a model that does
+ *   not is sent no such option.
  */
 export class OllamaProvider implements LlmProvider {
   readonly id = "ollama" as const;
   private readonly post: PostJson;
+  private info?: Promise<ModelInfo>;
 
   constructor(
     readonly model: string,
@@ -70,18 +105,31 @@ export class OllamaProvider implements LlmProvider {
     this.post = opts.post ?? postJson();
   }
 
+  /** What Ollama says about the model, asked once. */
+  modelInfo(): Promise<ModelInfo> {
+    this.info ??= this.post(`${this.opts.url}/api/show`, { model: this.model }).then(
+      (data) => infoOf(this.model, data as ShowResponse),
+      (error: unknown) => {
+        throw new Error(`ollama: no answer at ${this.opts.url} (${error instanceof Error ? error.message : String(error)}); start it with \`ollama serve\``);
+      },
+    );
+    return this.info;
+  }
+
   async complete<T>(req: LlmRequest<T>): Promise<LlmAnswer<T>> {
     const t0 = performance.now();
+    const info = await this.modelInfo();
+    const maxCtx = info.contextLength ? Math.min(this.opts.maxCtx, info.contextLength) : this.opts.maxCtx;
     // a long prompt is counted exactly first: an estimate that falls short leaves too little room to answer
     const estimate = estimateTokens(req);
     const prompt = this.opts.numCtx === "auto" && estimate > EXACT_FROM ? await this.countTokens(req) : estimate;
-    let numCtx = this.opts.numCtx === "auto" ? windowFor(prompt, req.maxTokens, this.opts.maxCtx) : this.opts.numCtx;
+    let numCtx = this.opts.numCtx === "auto" ? windowFor(prompt, req.maxTokens, maxCtx) : this.opts.numCtx;
     for (let attempt = 0; attempt < 4; attempt++) {
-      const data = await this.chat(req, numCtx);
+      const data = await this.chat(req, numCtx, info);
       const error = errorOf(data.error);
       if (error?.type === "exceed_context_size_error" && error.n_prompt_tokens !== undefined) {
-        const needed = windowFor(error.n_prompt_tokens, req.maxTokens, this.opts.maxCtx);
-        if (needed <= numCtx || error.n_prompt_tokens + req.maxTokens > this.opts.maxCtx) {
+        const needed = windowFor(error.n_prompt_tokens, req.maxTokens, maxCtx);
+        if (needed <= numCtx || error.n_prompt_tokens + req.maxTokens > maxCtx) {
           return this.answer(req, t0, "", null, "truncated-input", { input: error.n_prompt_tokens, output: 0 });
         }
         numCtx = needed;
@@ -91,7 +139,7 @@ export class OllamaProvider implements LlmProvider {
       const used = (data.prompt_eval_count ?? 0) + (data.eval_count ?? 0);
       if (used >= numCtx - 1) {
         // the answer reached the end of the window: the server may have shifted the context, dropping input
-        const wider = Math.min(this.opts.maxCtx, numCtx + req.maxTokens + 2048);
+        const wider = Math.min(maxCtx, numCtx + req.maxTokens + 2048);
         if (wider > numCtx) {
           numCtx = wider;
           continue;
@@ -107,17 +155,18 @@ export class OllamaProvider implements LlmProvider {
 
   /** Input tokens as Ollama counts them: a request with a one-token window is refused with the exact count. */
   async countTokens(req: LlmRequest): Promise<number> {
-    const data = await this.chat(req, 1);
+    const data = await this.chat(req, 1, await this.modelInfo());
     const error = errorOf(data.error);
     if (error?.n_prompt_tokens !== undefined) return error.n_prompt_tokens;
     return data.prompt_eval_count ?? estimateTokens(req);
   }
 
-  private async chat(req: LlmRequest, numCtx: number): Promise<ChatResponse> {
+  private async chat(req: LlmRequest, numCtx: number, info: ModelInfo): Promise<ChatResponse> {
     return (await this.post(`${this.opts.url}/api/chat`, {
       model: this.model,
       stream: false,
-      think: false,
+      // only a model that thinks takes the option; when Ollama does not say, it is sent as before
+      ...(info.thinking === false ? {} : { think: false }),
       format: z.toJSONSchema(req.schema),
       options: { temperature: 0, seed: this.opts.seed, num_ctx: numCtx, num_predict: req.maxTokens },
       messages: [

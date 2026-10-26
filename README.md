@@ -6,7 +6,7 @@ three sources of evidence, each of which can be switched off:
 - analysis of the code by rules (ts-morph);
 - the infrastructure descriptions: docker compose, Traefik, nginx,
   Kubernetes, Helm, Terraform;
-- a large language model: Claude Opus 5.5 in the cloud, or Qwen3 30B locally
+- a large language model: Claude in the cloud, or any chat model in Ollama locally (the measurements used Opus 5.5 and Qwen3 30B)
   in Ollama.
 
 It is also the measuring instrument of the master's thesis «Формування
@@ -82,7 +82,7 @@ config file; Rocket.Chat is `configs/rocketchat.yaml`.
 | pnpm | 10 | Everything |
 | git | — | Everything |
 | Python with uv | 3.14, uv 0.12 | The statistical analysis (`analysis/`) |
-| Ollama | 0.40, with `qwen3:30b-a3b-instruct-2507-q4_K_M` | The local model |
+| Ollama | 0.40, with any chat model, named by `llm.local.model` in the config (the measurements used `qwen3:30b-a3b-instruct-2507-q4_K_M`) | The local model |
 | `ANTHROPIC_API_KEY`, or Claude Code logged in to a subscription | — | The cloud model (`claude-opus-5-5`): `--model cloud` through the API, `--model cloud-cli` through Claude Code |
 | Helm | — | Optional: rendering Helm charts (`brew install helm`) |
 | codebase-memory-mcp | 0.7 or later | Optional: the baseline |
