@@ -71,7 +71,7 @@ export async function runMapPipeline(ctx: CliContext, model: ModelUse, log: (m: 
     await step(
       "inventory",
       () => runInventory(db, config, layout, loaded.path, { allowHeldout: heldout && ctx.frozen(), configHash: loaded.hash, log }),
-      (r) => `${r.repos.reduce((n, x) => n + x.files, 0)} files in ${r.repos.length} repositories`,
+      (r) => `${r.repos.reduce((n, x) => n + x.files, 0)} files in ${r.repos.length} ${r.repos.length === 1 ? "repository" : "repositories"}`,
     );
     await step(
       "extract",

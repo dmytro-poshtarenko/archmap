@@ -31,8 +31,8 @@
     "test:watch": "vitest",
     "archmap": "tsx src/cli/index.ts",
     "licence-check": "tsx src/cli/index.ts licence-check",
-    "prepare": "git config core.hooksPath .githooks || true",
-    "test:system": "ARCHMAP_SYSTEM=1 vitest run test/system"
+    "test:system": "ARCHMAP_SYSTEM=1 vitest run test/system",
+    "postinstall": "node -e \"fs.existsSync('.git') && child_process.execSync('git config core.hooksPath .githooks')\""
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.131.0",
