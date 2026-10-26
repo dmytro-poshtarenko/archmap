@@ -6,8 +6,8 @@ three sources of evidence, each of which can be switched off:
 - analysis of the code by rules (ts-morph);
 - the infrastructure descriptions: docker compose, Traefik, nginx,
   Kubernetes, Helm, Terraform;
-- a large language model: Claude in the cloud, or any chat model in Ollama locally (the measurements used Opus 5.5 and Qwen3 30B)
-  in Ollama.
+- a large language model: Claude in the cloud, or any chat model in Ollama
+  locally (the measurements used Opus 5.5 and Qwen3 30B).
 
 It is also the measuring instrument of the master's thesis «Формування
 архітектури діючого мультирепозиторного програмного комплексу». It labels a
@@ -15,6 +15,48 @@ reference sample, evaluates every variant of the method on the same call
 sites, runs the experiment on file length (hypothesis 3) and freezes the
 method before the test split is opened. The target system is described by one
 config file; Rocket.Chat is `configs/rocketchat.yaml`.
+
+## Quick start
+
+```bash
+npm install -g github:<account>/archmap
+cd /path/to/your/system
+archmap init
+archmap map --open
+archmap setup claude
+```
+
+1. **Install** once; it needs Node.js 24.
+2. **`archmap init`** looks at the folder you run it in:
+   - each git repository in it, or the folder itself;
+   - the apps in their package.json files, and the browser code of a full-stack app;
+   - the services of docker-compose, and the databases, buses and gateways their images name;
+   - Kubernetes, Helm, nginx and Terraform files;
+   - the rule packs the code needs.
+
+   It asks which language model to use, if any, and writes `archmap.yaml` with a comment on every part it found. Check the parts before going on: a playground or a tool may need removing.
+3. **`archmap map`** runs the whole method: inventory, rules, infrastructure, the model when the config names one (`llm.use`), links and the LikeC4 map. `--open` starts the viewer. The data goes to `.archmap/` next to the config, which keeps itself out of git.
+4. **`archmap setup claude`** registers archmap's MCP server and LikeC4's in Claude Code. `--print` shows the entry for other MCP clients.
+
+`archmap doctor` checks Node.js, the config, the repositories, the data folder and the model, and says what to fix.
+
+**The model** (`llm.use` in `archmap.yaml`):
+- `none` uses the rules and the infrastructure only;
+- `local` uses any chat model in Ollama, and the code stays on the computer;
+- `cloud-cli` (Claude Code) and `cloud` (an API key) send the code to Anthropic.
+
+Calls through an SDK no rule pack knows are found only with a model.
+
+**From a clone** of this repository, run `pnpm install`, then `pnpm archmap <command> --config /path/to/archmap.yaml`. Inside the clone, a command without `--config` reads the Rocket.Chat config of the measurements.
+
+**How well `init` does.** On the Rocket.Chat snapshot of the measurements, `init` found the same parts as the hand-written config:
+- the Meteor server and its browser code;
+- the six microservices under their docker-compose names;
+- the desktop and livechat clients;
+- traefik, nats and mongo;
+- the rule packs `meteor@1` and `rocketchat@1`.
+
+It also took one playground app, and it cannot see the held-out mobile repository. Without the model, the map from the detected config linked 4,523 call sites, against 4,602 from the hand-written one.
 
 ## Results on Rocket.Chat
 
@@ -79,8 +121,8 @@ config file; Rocket.Chat is `configs/rocketchat.yaml`.
 | What | Version | Needed for |
 |---|---|---|
 | Node.js | 24 | Everything |
-| pnpm | 10 | Everything |
-| git | — | Everything |
+| pnpm | 10 | Developing archmap and the measurements; a global install needs npm only |
+| git | — | Remote repositories, and developing archmap |
 | Python with uv | 3.14, uv 0.12 | The statistical analysis (`analysis/`) |
 | Ollama | 0.40, with any chat model, named by `llm.local.model` in the config (the measurements used `qwen3:30b-a3b-instruct-2507-q4_K_M`) | The local model |
 | `ANTHROPIC_API_KEY`, or Claude Code logged in to a subscription | — | The cloud model (`claude-opus-5-5`): `--model cloud` through the API, `--model cloud-cli` through Claude Code |

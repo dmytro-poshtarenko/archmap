@@ -7,6 +7,17 @@
   "bin": {
     "archmap": "dist/cli/index.js"
   },
+  "files": [
+    "dist",
+    "rules",
+    "prompts",
+    "configs",
+    "freeze",
+    "labelling",
+    "docs/labelling-guide.md",
+    "README.md",
+    "LICENSE"
+  ],
   "engines": {
     "node": ">=24"
   },
@@ -18,7 +29,7 @@
     "test:watch": "vitest",
     "archmap": "tsx src/cli/index.ts",
     "licence-check": "tsx src/cli/index.ts licence-check",
-    "prepare": "git config core.hooksPath .githooks || true",
+    "prepare": "git config core.hooksPath .githooks || true; tsc -p tsconfig.build.json",
     "test:system": "ARCHMAP_SYSTEM=1 vitest run test/system"
   },
   "dependencies": {

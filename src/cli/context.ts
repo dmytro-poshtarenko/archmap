@@ -1,13 +1,11 @@
 import { join } from "node:path";
 import { type LoadedConfig, loadConfig } from "../config/load.js";
-import { type DataLayout, dataLayout, resolveDataDir, toolRoot } from "../core/paths.js";
+import { type DataLayout, dataLayout, ensureProjectData, resolveConfigPath, resolveDataDir, toolRoot } from "../core/paths.js";
 import { checkFrozen } from "../experiments/guards.js";
 import { type Db, openDb } from "../store/db.js";
 
-export const DEFAULT_CONFIG = join(toolRoot, "configs", "rocketchat.yaml");
-
 export interface GlobalOptions {
-  config: string;
+  config?: string;
   data?: string;
 }
 
@@ -24,8 +22,9 @@ export interface CliContext {
 }
 
 export function createContext(opts: GlobalOptions): CliContext {
-  const loaded = loadConfig(opts.config);
-  const layout = dataLayout(resolveDataDir(opts.data));
+  const loaded = loadConfig(resolveConfigPath(opts.config));
+  const layout = dataLayout(resolveDataDir(opts.data, loaded.path));
+  ensureProjectData(layout.root);
   const dbPath = join(layout.db, `${loaded.config.name}.sqlite`);
   let frozen: boolean | undefined;
   const log = (message: string) => process.stderr.write(`${message}\n`);

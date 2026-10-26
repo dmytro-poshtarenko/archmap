@@ -121,8 +121,18 @@ export const LlmConfig = z.strictObject({
   /** A share of the requests is repeated to measure how stable the answers are. */
   stability: z.strictObject({ share: z.number().min(0).max(1).default(0.1), repeats: z.number().int().min(1).default(3) }).prefault({}),
   budgetUsd: z.number().positive().default(60),
+  /**
+   * The model `archmap map` and the MCP tool rebuild_map use when none is
+   * named: none (rules and infrastructure only), local (Ollama), cloud-cli
+   * (Claude Code) or cloud (the API). No default, so configs without it keep
+   * their hash.
+   */
+  use: z.enum(["none", "local", "cloud", "cloud-cli"]).optional(),
 });
 export type LlmConfig = z.infer<typeof LlmConfig>;
+/** A model to run with, or none. */
+export type ModelUse = NonNullable<LlmConfig["use"]>;
+export const MODEL_USES: readonly ModelUse[] = ["none", "local", "cloud", "cloud-cli"];
 
 export const TargetConfig = z.strictObject({
   name: Id,

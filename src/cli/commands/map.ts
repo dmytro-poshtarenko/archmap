@@ -2,15 +2,43 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { Command } from "commander";
 import { reader } from "../../llm/run.js";
+import { MODEL_USES, type ModelUse } from "../../config/schema.js";
 import { featureRelations } from "../../map/feature.js";
 import type { RelationKind } from "../../map/graph.js";
 import { runLikec4 } from "../../map/likec4.js";
 import { addFeatureView, buildMap, currentMapDir, currentMapRun, defaultMapRun, graphOf, MODEL_FILE, mapDir, removeFeatureView } from "../../map/run.js";
+import { runMapPipeline } from "../../pipeline/map.js";
 import { createContext, type GlobalOptions } from "../context.js";
 
 const list = (v: string) => v.split(",").map((x) => x.trim()).filter(Boolean);
 
 export function registerMap(program: Command): void {
+  program
+    .command("map")
+    .description("the whole method in one command, from the code to a validated map: the steps from inventory to build-map, the model's only if one is set")
+    .option("--model <model>", "none, local (Ollama), cloud-cli (Claude Code) or cloud (API key); default: llm.use in the config, else none")
+    .option("--open", "start the viewer when the map is built")
+    .option("--port <n>", "port of the viewer", "5173")
+    .action(async (opts: { model?: string; open?: boolean; port: string }, cmd: Command) => {
+      const ctx = createContext(cmd.optsWithGlobals<GlobalOptions>());
+      const model = (opts.model ?? ctx.loaded.config.llm.use ?? "none") as ModelUse;
+      if (!MODEL_USES.includes(model)) throw new Error(`unknown model '${model}': ${MODEL_USES.join(", ")}`);
+      ctx.log(`${ctx.loaded.config.name}: config ${ctx.loaded.path}, data ${ctx.layout.root}, model ${model}`);
+      const result = await runMapPipeline(ctx, model, ctx.log);
+      console.log(`map of ${ctx.loaded.config.name}: ${result.elements} elements, ${result.relations} relations (run ${result.run})`);
+      for (const d of result.diagnostics) console.log(`  ${d.source ?? ""}:${d.line ?? ""} ${d.message}`);
+      if (result.diagnostics.length > 0) {
+        process.exitCode = 1;
+        return;
+      }
+      if (!opts.open) {
+        console.log("open it with `archmap view`");
+        return;
+      }
+      console.log(`LikeC4 viewer on http://localhost:${opts.port}`);
+      process.exitCode = await runLikec4(["start", currentMapDir(ctx.layout.root, ctx.loaded.config.name), "--port", opts.port]);
+    });
+
   program
     .command("build-map")
     .description("write the LikeC4 model of a run (system map, a view of each part) and validate it")

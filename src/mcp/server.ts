@@ -46,11 +46,11 @@ export function createServer(ctx: McpContext): McpServer {
     {
       title: "Rebuild the map",
       description:
-        "Classifies the call sites, matches them for a variant of the method, lets the language model resolve what the rules leave open (from recorded answers unless llm is 'live'), and writes and validates the LikeC4 model. The model defaults to the cloud model of the config (its channel decides API or Claude Code).",
+        "Classifies the call sites, matches them for a variant of the method, lets the language model resolve what the rules leave open (from recorded answers unless llm is 'live'), and writes and validates the LikeC4 model. The model defaults to llm.use in the config (none skips it), else the cloud model of the config.",
       inputSchema: {
         variant: z.enum(["full", "no-llm", "no-infra", "no-rules"]).default("full"),
         llm: z.enum(["cache-only", "live"]).default("cache-only"),
-        model: z.enum(["local", "cloud", "cloud-cli"]).default("cloud"),
+        model: z.enum(["local", "cloud", "cloud-cli"]).optional(),
       },
     },
     async ({ variant, llm, model }) => {
@@ -60,8 +60,9 @@ export function createServer(ctx: McpContext): McpServer {
         const flags = { rules: variant !== "no-rules", infra: variant !== "no-infra", llm: variant !== "no-llm" };
         const matched = runMatch(db, config, flags, { configHash: ctx.loaded.hash });
         let resolved: unknown = null;
-        if (flags.llm) {
-          const choice = llm === "live" ? model : (`replay-${model}` as const);
+        const use = model ?? (config.llm.use === "none" ? null : (config.llm.use ?? "cloud"));
+        if (flags.llm && use) {
+          const choice = llm === "live" ? use : (`replay-${use}` as const);
           const client = new LlmClient(db, providerOf(config, choice, db), { budgetUsd: config.llm.budgetUsd, log: (m) => process.stderr.write(`${m}\n`) });
           try {
             resolved = await runResolve(db, config, reader(config, ctx.layout, ctx.loaded.path), client, { base: matched.run, mode: "select", scope: "open", configHash: ctx.loaded.hash });
